@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habbittracker MVP</title>
+    <link rel="stylesheet" href="habbittracker.css">
+</head>
+<body>
+
+    <!-- ЭКРАН 1: ИНТРО -->
+    <section id="intro-screen">
+        <div class="wolf-container">
+            <img src="pics/wolf_master.jpeg" alt="Мастер-волк" class="wolf-avatar-img">
+            <div class="phrase-container">
+                <p id="intro-text">Повторение — это не рутина. Это ритм, в котором рождается мастерство.</p>
+            </div>
+            <div class="hint-text">нажми на экран, чтобы следовать своему пути</div>
+        </div>
+    </section>
+
+    <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
+    <section id="dashboard-screen" class="hidden">
+        <div class="dash-toprow">
+            <button class="icon-btn" id="reset-btn" type="button" aria-label="Сбросить прогресс">↺</button>
+            <button class="icon-btn" id="help-btn" type="button" aria-label="Как это работает">?</button>
+        </div>
+        <div class="dash-header">
+            <span class="dash-date" id="dash-date">—</span>
+            <div class="dash-level">
+                <span class="level-label">уровень</span>
+                <span class="level-value" id="dash-level-value">1</span>
+            </div>
+        </div>
+
+        <!-- Контекстная подсказка онбординга -->
+        <div id="onb-hint" class="onb-hint">
+            <span class="onb-hint-text"></span>
+            <button class="onb-hint-close" id="onb-hint-close" type="button">Понятно</button>
+        </div>
+
+        <!-- ЦЕНТРАЛЬНАЯ ОБЛАСТЬ С КОНТЕНТОМ -->
+        <div class="dash-content">
+            <!-- Привычки -->
+            <div id="view-habits" class="dash-view active">
+                <!-- Обычный режим: колесо жизни + привычки -->
+                <div id="day-normal">
+                    <h3 class="dash-subtitle">Задачи на сегодня</h3>
+                    <div class="timer-subtitle" id="reset-timer">до обновления: 00:00:00</div>
+                    <div id="dash-habit-list"></div>
+                    <div id="life-wheel-day" class="life-wheel"></div>
+                </div>
+                <!-- Psycho mode: числовые метрики -->
+                <div id="day-psycho" style="display:none">
+                    <h3 class="dash-subtitle">Psycho mode — показатели дня</h3>
+                    <div id="psycho-list"></div>
+                </div>
+            </div>
+
+            <!-- Месяц / История -->
+            <div id="view-month" class="dash-view"></div>
+
+            <!-- Тренировка -->
+            <div id="view-training" class="dash-view">
+                <h3 class="dash-subtitle">Мини-игры</h3>
+                <div id="training-games-container"></div>
+            </div>
+            
+                    <!-- Утренний чек-ап -->
+                    <div id="view-morning" class="dash-view">
+                        <div class="checkin-header-row">
+                            <h3 class="dash-subtitle" style="margin-bottom:0">Утренний чек-ап</h3>
+                            <span class="checkin-date-label" id="date-label-morning"></span>
+                            <button class="history-btn" id="history-btn-morning" title="История"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></button>
+                        </div>
+                        <!-- Скрытый инпут для даты -->
+                        <input type="date" id="date-input-morning" style="position: absolute; width: 1px; height: 1px; opacity: 0;">
+                        
+                        <div class="checkin-form" id="morning-form" data-type="morning">
+                            <div class="checkin-group"><label>Во сколько лёг в кровать?</label><input type="time" class="checkin-time" data-key="bedTime"></div>
+                            <div class="checkin-group"><label>Во сколько уснул?</label><input type="time" class="checkin-time" data-key="sleepTime"></div>
+                            <div class="checkin-group"><label>Во сколько проснулся?</label><input type="time" class="checkin-time" data-key="wakeTime"></div>
+                            <div class="checkin-group"><label>Качество сна</label><div class="scale-container" data-key="sleepQuality"></div></div>
+                            <div class="checkin-group"><label>Уровень энергии утром</label><div class="scale-container" data-key="energy"></div></div>
+                            <div class="checkin-group"><label>Настроение</label><div class="scale-container" data-key="mood"></div></div>
+                            <div class="checkin-group"><label>Главный фокус на сегодня</label><input type="text" class="checkin-text" data-key="focus" placeholder="Например, закрыть сложный проект"></div>
+                            
+                            <div class="checkin-save-wrapper">
+                                <button class="checkin-save-btn" id="save-morning-btn">Сохранить чек-ап</button>
+                                <div class="save-status-row">
+                                    <span class="checkin-save-status" id="status-morning"></span>
+                                    <button class="checkin-edit-btn" id="edit-morning-btn" style="display:none;">Редактировать</button>
+                                </div>
+                                <button class="checkin-analytics-btn">Аналитика</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Вечерний чек-ап -->
+                    <div id="view-evening" class="dash-view">
+                        <div class="checkin-header-row">
+                            <h3 class="dash-subtitle" style="margin-bottom:0">Вечерний чек-ап</h3>
+                            <span class="checkin-date-label" id="date-label-evening"></span>
+                            <button class="history-btn" id="history-btn-evening" title="История"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></button>
+                        </div>
+                        <!-- Скрытый инпут для даты -->
+                        <input type="date" id="date-input-evening" style="position: absolute; width: 1px; height: 1px; opacity: 0;">
+        
+                        <div class="checkin-form" id="evening-form" data-type="evening">
+                            <div class="checkin-group"><label>Общая оценка дня</label><div class="scale-container" data-key="dayRate"></div></div>
+                            <div class="checkin-group"><label>Уровень энергии сейчас</label><div class="scale-container" data-key="energy"></div></div>
+                            <div class="checkin-group"><label>Удовлетворённость результатами</label><div class="scale-container" data-key="satisfaction"></div></div>
+                            <div class="checkin-group"><label>Уровень спокойствия</label><div class="scale-container" data-key="calm"></div></div>
+                            <div class="checkin-group"><label>Качество выполнения привычек</label><div class="scale-container" data-key="habitQuality"></div></div>
+                            <div class="checkin-group"><label>За что благодарен сегодня?</label><input type="text" class="checkin-text" data-key="gratitude" placeholder="Например, за продуктивную встречу"></div>
+                            <div class="checkin-group"><label>Что улучшить завтра?</label><input type="text" class="checkin-text" data-key="improve" placeholder="Например, лечь раньше"></div>
+                            
+                            <div class="checkin-save-wrapper">
+                                <button class="checkin-save-btn" id="save-evening-btn">Сохранить чек-ап</button>
+                                <div class="save-status-row">
+                                    <span class="checkin-save-status" id="status-evening"></span>
+                                    <button class="checkin-edit-btn" id="edit-evening-btn" style="display:none;">Редактировать</button>
+                                </div>
+                                <button class="checkin-analytics-btn">Аналитика</button>
+                            </div>
+                        </div>
+                    </div>
+
+            <!-- Питомец -->
+            <div id="view-pet" class="dash-view"></div>
+        </div>
+
+        <!-- ТУМБЛЕР PSYCHO MODE -->
+        <button id="psycho-toggle" type="button" aria-pressed="false">
+            <span class="pt-label">psycho mode</span>
+            <span class="pt-switch" aria-hidden="true"></span>
+        </button>
+
+        <!-- НИЖНИЙ ТАБ-БАР -->
+        <div class="view-switcher">
+            <button class="view-btn active" data-view="habits"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 5.5l1 1 1.6-1.7M4 11.5l1 1 1.6-1.7M4 17.5l1 1 1.6-1.7"/></svg></span><span class="vb-txt">День</span></button>
+            <button class="view-btn" data-view="month"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></span><span class="vb-txt">Месяц</span></button>
+            <button class="view-btn" data-view="training"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span><span class="vb-txt">Игры</span></button>
+            <button class="view-btn" data-view="morning" id="btn-morning"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18M5.5 14a6.5 6.5 0 0 1 13 0"/><path d="M12 3.5V6M4.5 8L6 9.3M19.5 8L18 9.3"/></svg></span><span class="vb-txt">Утро</span></button>
+            <button class="view-btn" data-view="evening" id="btn-evening"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4 7 7 0 1 0 20 14.5z"/></svg></span><span class="vb-txt">Вечер</span></button>
+            <button class="view-btn" data-view="pet"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6.2" cy="11" r="2"/><circle cx="10.4" cy="7.6" r="2"/><circle cx="15" cy="8.2" r="2"/><circle cx="18.4" cy="12" r="1.8"/><path d="M12.2 12.4c-2.5 0-4.3 1.9-4.3 3.9 0 1.7 1.4 2.6 3 2.6.9 0 1.1.3 1.3.3s.4-.3 1.3-.3c1.6 0 3-.9 3-2.6 0-2-1.8-3.9-4.3-3.9z"/></svg></span><span class="vb-txt">Питомец</span></button>
+        </div>
+
+        <!-- ПРОГРЕСС -->
+        <div class="dash-footer">
+            <div class="progress-container">
+                <div class="progress-label">
+                    <span id="progress-text">0 / 15 XP</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- МОДАЛКА: ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ (внутри #dashboard-screen → инвертируется в psycho mode) -->
+        <div id="confirm-modal" class="habit-settings-modal">
+            <div class="habit-settings-content confirm-content">
+                <p class="confirm-text" id="confirm-text"></p>
+                <div class="confirm-actions">
+                    <button class="settings-btn cancel" id="confirm-cancel">Отмена</button>
+                    <button class="settings-btn save" id="confirm-ok">Удалить</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ПИТОМЕЦ: «бегающий» по экранам на десктопе (визуал — плейсхолдер) -->
+    <div id="pet-roamer" title="Питомец"><div class="pet-roamer-ph">питомец</div></div>
+
+    <!-- ОНБОРДИНГ: коачмарки (затемнение + подсветка + подсказка) -->
+    <div id="coach-overlay">
+        <div id="coach-hole"></div>
+        <div id="coach-tip">
+            <p class="coach-text"></p>
+            <div class="coach-tip-foot">
+                <span class="coach-counter"></span>
+                <div class="coach-btns">
+                    <button class="coach-skip" type="button">Пропустить</button>
+                    <button class="coach-next" type="button">Далее</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛКА: НАСТРОЙКИ ПРИВЫЧКИ -->
+    <div id="habit-settings-modal" class="habit-settings-modal">
+        <div class="habit-settings-content">
+            <div class="habit-settings-header"><h3>Привычка</h3><button class="habit-settings-close" id="habit-settings-close">✕</button></div>
+            <div class="habit-settings-body">
+                <div class="setting-field"><label class="setting-label">Название</label><input type="text" id="setting-name-input" class="formula-input" maxlength="40" placeholder="Название привычки"></div>
+                <div class="setting-field"><label class="setting-label">Я сделаю это после того, как</label><input type="text" id="setting-trigger-input" class="formula-input" placeholder="например, выпью кофе"></div>
+                <div class="setting-reminder"><div class="toggle-wrapper"><input type="checkbox" id="setting-reminder-toggle" class="toggle-checkbox"><label for="setting-reminder-toggle" class="toggle-label">Напомнить в:</label></div><input type="time" id="setting-time-input" class="time-input" disabled></div>
+                <div class="setting-field"><label class="setting-label">Сферы колеса жизни</label><div id="setting-areas" class="setting-areas"></div></div>
+            </div>
+            <div class="habit-settings-footer"><button class="settings-btn delete" id="settings-delete-btn">Удалить</button><span class="settings-footer-spacer"></span><button class="settings-btn cancel" id="settings-cancel-btn">Отмена</button><button class="settings-btn save" id="settings-save-btn">Сохранить</button></div>
+        </div>
+    </div>
+
+    <!-- МОДАЛКА: РАЗБЛОКИРОВКА ИГРЫ -->
+    <div id="game-unlock-modal" class="game-unlock-modal">
+        <div class="game-unlock-content">
+            <span class="game-unlock-badge">уровень <span id="game-unlock-level">3</span></span>
+            <h3 class="game-unlock-title">Новая игра открыта</h3>
+            <p class="game-unlock-subtitle">Выбери, что добавить</p>
+            <div class="game-unlock-list" id="game-unlock-list"></div>
+        </div>
+    </div>
+
+    <!-- ЗАГРУЗКА -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-text">терпение — ключ к успеху...</div>
+    </div>
+
+    <script src="habbittracker.js"></script>
+</body>
+</html>

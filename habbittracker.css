@@ -1,0 +1,729 @@
+/* =========================================
+   БАЗА
+   ========================================= */
+   * { margin: 0; padding: 0; box-sizing: border-box; }
+   body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #fff; color: #111; height: 100vh; overflow: hidden; }
+   
+   /* =========================================
+      ЭКРАН 1: ИНТРО
+      ========================================= */
+   #intro-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: #fff; cursor: pointer; transition: opacity 1.2s ease; user-select: none; }
+   .wolf-container { text-align: center; max-width: 100%; width: 100%; padding: 20px 60px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
+   .wolf-avatar-img { width: 600px; height: auto; margin-bottom: 60px; animation: float 6s ease-in-out infinite; filter: grayscale(100%); opacity: 0.9; }
+   @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+   .phrase-container { height: 120px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+   #intro-text { font-size: 50px; font-style: italic; line-height: 1.3; font-weight: 300; color: #666; opacity: 1; transition: opacity 1.5s ease; max-width: 1200px; width: 90%; letter-spacing: 0.5px; text-align: center; }
+   #intro-text.fade-out { opacity: 0; }
+   .hint-text { position: absolute; bottom: 40px; right: 60px; font-size: 14px; color: #999; font-weight: 300; letter-spacing: 0.5px; opacity: 0.7; animation: pulse 3s ease-in-out infinite; }
+   @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.8; } }
+   
+   /* =========================================
+      ЭКРАН 2: ИДЕНТИЧНОСТЬ
+      ========================================= */
+   #identity-screen { display: flex; flex-direction: column; height: 100vh; padding-top: 80px; opacity: 0; pointer-events: none; transition: opacity 1.5s ease; background: #fff; position: relative; }
+   #identity-screen.visible { opacity: 1; pointer-events: auto; }
+   #identity-screen.dissolving .screen-title, #identity-screen.dissolving .global-hint, #identity-screen.dissolving .separator, #identity-screen.dissolving .identity-item:not(.active) { opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+   #identity-screen.dissolving .identity-item.active .identity-name { color: #111 !important; opacity: 0; transition: opacity 0.2s ease; }
+   .screen-title { text-align: center; font-size: 24px; font-weight: 300; color: #888; margin-bottom: 10px; letter-spacing: 1px; transition: opacity 0.5s ease; }
+   .global-hint { text-align: center; font-size: 14px; color: #999; font-weight: 300; margin-top: 5px; margin-bottom: 50px; letter-spacing: 0.3px; line-height: 1.5; transition: opacity 0.5s ease; }
+   .identity-row { display: flex; flex: 1; width: 100%; max-width: 100%; margin: 0; align-items: stretch; justify-content: flex-start; padding: 0; }
+   .identity-item { flex: 0 0 33.333%; width: 33.333%; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; transition: all 1s cubic-bezier(0.4, 0, 0.2, 1); padding: 40px 10px; position: relative; }
+   .separator { flex: 0 0 1px; width: 1px; height: 80%; background: #e0e0e0; align-self: center; transition: background 1s ease; }
+   .identity-name { font-size: clamp(2.5rem, 4vw, 4rem); color: #999; font-weight: 600; text-align: center; line-height: 1.2; width: 100%; transition: all 1s cubic-bezier(0.4, 0, 0.2, 1); user-select: none; letter-spacing: -0.5px; }
+   .identity-header:hover .identity-name { color: #111; }
+   .identity-item.active .identity-name { color: #111; transform: translateY(-40px); }
+   .identity-habits { display: flex; flex-direction: column; align-items: center; width: 100%; max-height: 0; overflow: hidden; opacity: 0; transition: all 1s cubic-bezier(0.4, 0, 0.2, 1); margin-top: 0; text-align: center; }
+   .identity-item.active .identity-habits { max-height: 700px; opacity: 1; margin-top: 20px; }
+   .habit { font-size: 15px; color: #555; margin: 5px 0; padding: 8px 15px; background: transparent; border: none; display: inline-block; width: auto; max-width: 90%; text-align: center; transition: all 0.5s ease; transform: translateY(15px); opacity: 0; cursor: pointer; font-weight: 400; }
+   .habit:hover { color: #111; }
+   .habit.selected { color: #111; font-weight: 600; }
+   .habit.selected::after { content: ''; display: block; width: 100%; height: 1px; background: #111; margin-top: 2px; }
+   .identity-item.active .habit { transform: translateY(0); opacity: 1; }
+   .identity-item.active .habit:nth-child(1) { transition-delay: 0.05s; }
+   .identity-item.active .habit:nth-child(2) { transition-delay: 0.1s; }
+   .identity-item.active .habit:nth-child(3) { transition-delay: 0.15s; }
+   .identity-item.active .habit:nth-child(4) { transition-delay: 0.2s; }
+   .identity-item.active .habit:nth-child(5) { transition-delay: 0.25s; }
+   .identity-item.active .habit:nth-child(6) { transition-delay: 0.3s; }
+   .identity-item.active .habit:nth-child(7) { transition-delay: 0.35s; }
+   .confirm-wrapper { margin-top: 20px; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; line-height: 1.6; min-height: 40px; }
+   .identity-item.active .confirm-wrapper { opacity: 1; pointer-events: auto; }
+   .confirm-text { font-size: 14px; color: #888; cursor: pointer; letter-spacing: 0.5px; transition: color 0.3s ease, transform 0.3s ease; display: inline-block; padding: 5px 0; }
+   .confirm-text:hover { color: #111; transform: scale(1.03); text-decoration: underline; text-underline-offset: 4px; }
+   .confirm-text.disabled { color: #d0d0d0; cursor: not-allowed; text-decoration: none; transform: none; }
+   
+   /* =========================================
+      ЭКРАН 3: ЭВОЛЮЦИЯ
+      ========================================= */
+   #evolution-screen { display: flex; flex-direction: column; height: 100vh; padding: 40px 60px; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; background: #fff; position: relative; }
+   #evolution-screen.visible { opacity: 1; pointer-events: auto; }
+   .back-arrow { position: absolute; top: 40px; left: 40px; font-size: 24px; cursor: pointer; color: #888; transition: color 0.3s ease; z-index: 10; }
+   .back-arrow:hover { color: #111; }
+   .evo-header { text-align: center; margin-bottom: 40px; opacity: 0; animation: fadeInUp 0.8s forwards 0.2s; }
+   .evo-title { font-size: 32px; font-weight: 600; color: #111; margin-bottom: 10px; opacity: 0; }
+   .evo-subtitle { font-size: 15px; color: #888; font-weight: 300; letter-spacing: 0.3px; line-height: 1.4; }
+   @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+   .evo-list { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 25px; overflow-y: auto; padding-bottom: 20px; }
+   .evo-row { display: flex; align-items: center; justify-content: center; gap: 15px; opacity: 0; animation: fadeInUp 0.8s forwards; }
+   .evo-row:nth-child(1) { animation-delay: 0.4s; } .evo-row:nth-child(2) { animation-delay: 0.6s; } .evo-row:nth-child(3) { animation-delay: 0.8s; }
+   .evo-initial { font-size: 16px; color: #333; font-weight: 500; min-width: 180px; text-align: right; line-height: 1.3; }
+   .evo-arrow { color: #ccc; font-size: 18px; flex-shrink: 0; }
+   .evo-slider-wrapper { display: flex; align-items: center; width: 100%; max-width: 350px; gap: 5px; }
+   .evo-slider-viewport { flex: 1; overflow: hidden; position: relative; min-height: 40px; display: flex; align-items: center; }
+   .evo-track { display: flex; height: 100%; transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); width: 100%; }
+   .evo-option { flex: 0 0 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #555; cursor: pointer; user-select: none; text-align: center; white-space: normal; padding: 5px; }
+   .evo-option:hover { color: #111; }
+   .evo-nav { width: 24px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #ccc; font-size: 18px; transition: color 0.2s ease; flex-shrink: 0; background: transparent; z-index: 2; }
+   .evo-nav:hover { color: #111; }
+   .evo-confirm-btn { margin-top: 30px; padding: 0; background: transparent; color: #888; border: none; font-size: 14px; font-weight: 400; cursor: pointer; letter-spacing: 0.5px; opacity: 0; animation: fadeInUp 0.8s forwards 1s; transition: color 0.3s ease, transform 0.3s ease; align-self: center; }
+   .evo-confirm-btn:hover { color: #111; transform: scale(1.03); text-decoration: underline; text-underline-offset: 4px; }
+   .clone-title { position: fixed; z-index: 1000; pointer-events: none; margin: 0; white-space: nowrap; overflow: hidden; transition: transform 1.1s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease; transform-origin: top left; }
+   
+   /* =========================================
+      ЭКРАН 4: ДАШБОРД (ОБНОВЛЁННЫЙ)
+      ========================================= */
+   #dashboard-screen { display: flex; flex-direction: column; height: 100vh; padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; background: #fff; position: relative; }
+   #dashboard-screen.visible { opacity: 1; pointer-events: auto; }
+   .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 3000; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+   .loading-overlay.active { opacity: 1; pointer-events: auto; }
+   .loading-text { font-size: 24px; font-style: italic; color: #666; animation: pulseText 2s infinite; }
+   @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+   
+   .dash-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; border-bottom: 1px solid #eee; padding-bottom: 14px; }
+   .dash-date { font-size: 14px; color: #111; font-weight: 500; letter-spacing: 0.2px; }
+   .dash-level { display: flex; align-items: baseline; gap: 6px; }
+   .level-label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; }
+   .level-value { font-size: 18px; font-weight: 700; color: #111; line-height: 1; transition: transform 0.3s ease; display: inline-block; }
+   
+   /* Центральная область с видами */
+   .dash-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; padding-bottom: 10px; }
+   .dash-view { width: 100%; max-width: 600px; display: none; opacity: 0; transition: opacity 0.3s ease; }
+   .dash-view.active { display: block; opacity: 1; }
+   .dash-subtitle { font-size: 14px; color: #999; margin-bottom: 6px; font-weight: 400; letter-spacing: 1px; text-align: center; }
+   .timer-subtitle { text-align: center; font-size: 11px; color: #ccc; font-style: italic; margin-bottom: 20px; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+   #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; }
+   
+   /* Строка привычки */
+   .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; }
+   .habit-main-line { display: flex; align-items: center; width: 100%; gap: 12px; }
+   .habit-check { width: 19px; height: 19px; border: 1.6px solid #cfcfcf; border-radius: 5px; flex-shrink: 0; cursor: pointer; position: relative; transition: all 0.2s ease; }
+   .habit-check:hover { border-color: #111; }
+   .dash-habit-row.completed .habit-check { background: #111; border-color: #111; }
+   .dash-habit-row.completed .habit-check::after { content: ''; position: absolute; left: 6px; top: 2.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+   .dash-habit-text { flex: 1; font-size: 18px; color: #111; font-weight: 500; position: relative; cursor: pointer; transition: color 0.3s ease; }
+   .dash-habit-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+   .dash-habit-row.completed .dash-habit-text { color: #bbb; }
+   .dash-habit-row.completed .dash-habit-text::after { width: 100%; }
+   .dash-habit-streak { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: #444; margin-right: 10px; flex-shrink: 0; }
+   .dash-habit-streak .flame { color: #555; }
+   .dash-habit-row.completed .dash-habit-streak, .dash-habit-row.completed .dash-habit-streak .flame { color: #cbcbcb; }
+   .habit-settings-icon { display: inline-flex; align-items: center; color: #cfcfcf; cursor: pointer; transition: color 0.2s; flex-shrink: 0; }
+   .habit-settings-icon:hover { color: #111; }
+   .habit-subtext { font-size: 12px; color: #999; margin-top: 5px; margin-left: 31px; display: flex; gap: 12px; flex-wrap: wrap; }
+   .habit-subtext span { display: inline-flex; align-items: center; gap: 4px; }
+
+   /* Добавление привычки */
+   .dash-habit-add { padding: 4px 0; border-bottom: 1px solid #f3f3f3; }
+   .dash-habit-add input { width: 100%; border: none; background: transparent; font-family: inherit; font-size: 15px; color: #111; padding: 9px 0 9px 31px; outline: none; }
+   .dash-habit-add input::placeholder { color: #bbb; }
+   .dash-habit-limit { font-size: 12px; color: #ccc; text-align: center; padding: 14px 0; font-style: italic; }
+   
+   /* КНОПКИ ПЕРЕКЛЮЧЕНИЯ (2×2) */
+   .view-switcher {
+       display: grid;
+       grid-template-columns: repeat(5, 1fr); /* питомец скрыт → 5 вкладок (для 6 верни repeat(6,1fr) и max-width:600px) */
+       gap: 6px;
+       width: 100%;
+       max-width: 520px;
+       margin: 15px auto 10px;
+       padding: 0 6px;
+   }
+   /* Питомец временно скрыт по просьбе — убери это правило, чтобы вернуть вкладку */
+   .view-btn[data-view="pet"] { display: none; }
+   .view-btn {
+       padding: 8px 4px;
+       font-size: 11px;
+       font-weight: 500;
+       color: #666;
+       background: #fff;
+       border: 1px solid #e0e0e0;
+       border-radius: 10px;
+       cursor: pointer;
+       transition: all 0.2s ease;
+       display: flex;
+       flex-direction: column;
+       align-items: center;
+       justify-content: center;
+       gap: 3px;
+   }
+   .vb-ico { display: inline-flex; align-items: center; line-height: 1; }
+   .vb-ico svg { width: 19px; height: 19px; }
+   .vb-txt { font-size: 10px; letter-spacing: 0.2px; white-space: nowrap; }
+   .view-btn:hover { border-color: #bbb; color: #333; }
+   .view-btn.active {
+       background: #111;
+       color: #fff;
+       border-color: #111;
+       font-weight: 600;
+       animation: none; /* активная вкладка не пульсирует (иначе пульс перебивает чёрный фон) */
+   }
+   .view-btn.pulse:not(.active) {
+       animation: btnPulse 2s ease-in-out infinite;
+   }
+   @keyframes btnPulse {
+       0%, 100% { background: #fff; border-color: #e0e0e0; }
+       50% { background: #f5f5f5; border-color: #ddd; }
+   }
+   
+   /* Подвал */
+   .dash-footer { margin-top: auto; padding-top: 15px; width: 100%; display: flex; justify-content: center; }
+   .progress-container { width: 100%; max-width: 400px; }
+   .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: #999; margin-bottom: 6px; font-weight: 500; }
+   .progress-bar { height: 4px; background: #f0f0f0; border-radius: 2px; overflow: hidden; }
+   .progress-fill { height: 100%; background: #111; width: 0%; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+   
+/* =========================================
+   ЧЕКАПЫ — ПОЛНЫЙ БЛОК СТИЛЕЙ
+   ========================================= */
+
+/* --- Форма и поля --- */
+.checkin-form { display: flex; flex-direction: column; gap: 16px; }
+.checkin-group { margin-bottom: 2px; }
+.checkin-group label { display: block; font-size: 13px; color: #333; margin-bottom: 8px; font-weight: 500; }
+.checkin-time, .checkin-text { width: 100%; border: none; border-bottom: 1px solid #e0e0e0; padding: 6px 0; font-size: 15px; color: #111; outline: none; background: transparent; transition: border-color 0.2s; font-family: inherit; }
+.checkin-time:focus, .checkin-text:focus { border-color: #111; }
+.checkin-text::placeholder { color: #bbb; }
+.scale-container { display: flex; gap: 5px; }
+.scale-btn { flex: 1; min-width: 0; height: 34px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: #555; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; user-select: none; font-family: inherit; }
+.scale-btn:hover { border-color: #111; color: #111; }
+.scale-btn.active { background: #111; color: #fff; border-color: #111; }
+
+/* --- Блок сохранения + редактирование --- */
+.checkin-save-wrapper {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.checkin-save-btn {
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: #111;
+    border: 2px solid #111;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.checkin-save-btn:hover { background: #333; border-color: #333; transform: translateY(-1px); }
+.checkin-save-btn:active { transform: translateY(0); }
+.checkin-save-btn.saved { background: #fff; color: #111; border-color: #111; cursor: default; }
+.checkin-save-btn.saved:hover { transform: none; background: #fff; }
+
+/* Строка статуса: текст + кнопка редактирования в ряд */
+.save-status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 24px;
+}
+
+.checkin-save-status {
+    font-size: 12px;
+    color: #777;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.checkin-save-status.show { opacity: 1; }
+
+/* Кнопка редактирования (появляется после сохранения) */
+.checkin-edit-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: none; /* Скрыта по умолчанию */
+}
+.checkin-edit-btn:hover { border-color: #111; color: #111; }
+.checkin-edit-btn:active { transform: scale(0.98); }
+
+/* --- Заголовок чекапа + календарь + дата --- */
+.checkin-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 5px;
+    margin-bottom: 15px;
+}
+
+.history-btn {
+    background: none;
+    border: none;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 10;
+    position: relative;
+}
+.history-btn:hover { background: #f5f5f5; transform: scale(1.05); }
+.history-btn:active { transform: scale(0.95); }
+.history-btn.active { background: #111; color: #fff; }
+
+.checkin-date-label {
+    font-size: 13px;
+    color: #999;
+    font-weight: 400;
+    margin: 0 6px 0 0; /* Прижата к заголовку */
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+}
+
+/* --- Режим просмотра истории (только чтение) --- */
+.checkin-form.history-mode {
+    opacity: 0.85;
+    pointer-events: none; /* Блокирует всё внутри */
+}
+
+/* Исключения: разрешаем кликать по кнопкам действий */
+.checkin-form.history-mode #back-to-today-btn,
+.checkin-form.history-mode .checkin-analytics-btn,
+.checkin-form.history-mode .checkin-edit-btn {
+    pointer-events: auto !important;
+    opacity: 1;
+    cursor: pointer;
+}
+
+/* --- Кнопка аналитики --- */
+.checkin-analytics-btn {
+    margin-top: 10px;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #555;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    max-width: 300px;
+}
+.checkin-analytics-btn:hover { border-color: #999; color: #111; }
+
+/* =========================================
+   АНАЛИТИКА — МОДАЛКА И ГРАФИКИ
+   ========================================= */
+.analytics-modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: #fff;
+    z-index: 3500;
+    flex-direction: column;
+    padding: 20px;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+.analytics-modal.active { display: flex; }
+
+.analytics-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+}
+.analytics-title { font-size: 20px; font-weight: 700; }
+.analytics-close { font-size: 24px; background: none; border: none; cursor: pointer; color: #999; }
+
+.analytics-controls {
+    display: flex; gap: 15px; margin-bottom: 30px; align-items: center; flex-wrap: wrap;
+    background: #f9f9f9; padding: 10px 15px; border-radius: 12px;
+}
+.analytics-controls label { font-size: 13px; color: #666; font-weight: 500; }
+.analytics-controls input { 
+    padding: 8px; border: 1px solid #eee; border-radius: 6px; font-family: inherit; 
+    background: #fff;
+}
+.analytics-controls button { margin-left: auto; }
+
+.chart-container {
+    width: 100%;
+    margin-bottom: 25px;
+    padding: 0 10px; 
+}
+.chart-title { 
+    font-size: 14px; 
+    font-weight: 600; 
+    margin-bottom: 15px; 
+    color: #888; 
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+canvas { width: 100%; height: 150px; }
+    
+   /* =========================================
+      ТРЕНИРОВКА (ИГРЫ ВНУТРИ ДАШБОРДА)
+      ========================================= */
+   #training-games-container { width: 100%; }
+   .training-menu { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; width: 100%; }
+   .training-card {
+       display: flex; flex-direction: column; align-items: center; padding: 16px; background: #fff;
+       border: 2px solid #e5e5e5; border-radius: 12px; cursor: pointer; transition: all 0.2s ease; text-align: center;
+   }
+   .training-card:hover { border-color: #111; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.06); }
+   .training-card:active { transform: translateY(0); }
+   .training-icon { font-size: 28px; margin-bottom: 10px; }
+   .training-name { font-size: 15px; font-weight: 600; color: #111; margin-bottom: 4px; }
+   .training-desc { font-size: 12px; color: #888; line-height: 1.3; }
+   .training-card.locked { cursor: default; border-color: #eee; border-style: dashed; background: #fafafa; position: relative; }
+   .training-card.locked:hover { transform: none; box-shadow: none; border-color: #eee; }
+   .training-card.locked .training-name { color: #bbb; }
+   .training-card.locked .training-desc { color: #cbcbcb; }
+   .training-lock { position: absolute; top: 10px; right: 10px; color: #cbcbcb; display: inline-flex; }
+   .training-hint { text-align: center; font-size: 12px; color: #aaa; margin-top: 16px; letter-spacing: 0.2px; }
+   
+   /* Стили для игр внутри тренировки */
+   #training-games-container .game-setup, #training-games-container .game-area { text-align: center; width: 100%; max-width: 450px; margin: 0 auto; }
+   #training-games-container .game-timer { font-size: 28px; color: #111; font-weight: 600; margin: 12px 0 20px; }
+   #training-games-container .game-equation { font-size: 32px; margin: 18px 0; font-weight: 500; }
+   #training-games-container .game-input { padding: 10px; font-size: 22px; width: 130px; text-align: center; border: 2px solid #e5e5e5; border-radius: 8px; margin-top: 18px; }
+   #training-games-container .difficulty-btn { display: block; margin: 8px auto; padding: 10px 18px; font-size: 14px; width: 220px; border: 2px solid #111; border-radius: 8px; background: #fff; color: #111; cursor: pointer; }
+   #training-games-container .difficulty-btn:hover { background: #111; color: #fff; }
+   
+   #training-games-container #game-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 100%; max-width: 450px; margin: 0 auto; }
+   #training-games-container .card { position: relative; aspect-ratio: 2/3; border-radius: 6px; cursor: pointer; background: #f5f5f5; border: 1px solid #e5e5e5; transition: transform 0.2s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+   #training-games-container .card:hover { transform: scale(1.02); border-color: #111; }
+   #training-games-container .card.flipped, #training-games-container .card.matched { border-color: #111; background: #fff; }
+   #training-games-container .card img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+   #training-games-container .card.flipped img, #training-games-container .card.matched img { opacity: 1; }
+   #training-games-container .card .card-back { position: absolute; inset: 0; background: linear-gradient(135deg, #e5e5e5 0%, #f0f0f0 100%); display: flex; align-items: center; justify-content: center; font-size: 20px; color: #888; font-weight: bold; border-radius: 4px; }
+   #training-games-container .card.flipped .card-back, #training-games-container .card.matched .card-back { display: none; }
+   
+   #training-games-container .word-placeholders { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 18px; }
+   #training-games-container .word-placeholder { width: 75px; height: 32px; border: 1px solid #e5e5e5; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #666; background: #fafafa; }
+   #training-games-container .word-placeholder.filled { border-color: #111; color: #111; font-weight: 500; background: #fff; }
+   
+   .training-result { text-align: center; padding: 20px 0; }
+   .training-result-title { font-size: 20px; font-weight: 600; color: #111; margin-bottom: 15px; }
+   .training-result-message { font-size: 14px; color: #555; margin-bottom: 18px; }
+   .training-xp-badge { font-size: 24px; font-weight: 700; color: #111; background: #f5f5f5; padding: 10px 20px; border-radius: 10px; margin-bottom: 20px; }
+   .training-result-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+   .training-btn { padding: 10px 20px; font-size: 14px; border-radius: 8px; cursor: pointer; transition: all 0.2s; border: 2px solid #111; font-weight: 500; }
+   .training-btn.primary { background: #111; color: #fff; }
+   .training-btn.primary:hover { background: #333; }
+   .training-btn.secondary { background: #fff; color: #111; }
+   .training-btn.secondary:hover { background: #f5f5f5; }
+   .training-back-btn { margin-top: 15px; padding: 8px 16px; font-size: 13px; background: none; border: 1px solid #ddd; border-radius: 6px; color: #666; cursor: pointer; }
+   .training-back-btn:hover { color: #111; border-color: #111; }
+   
+   /* =========================================
+      МОДАЛКИ: НАСТРОЙКИ / ВЫБОР
+      ========================================= */
+   .habit-selector-modal, .habit-settings-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); z-index: 2500; align-items: center; justify-content: center; padding: 20px; }
+   .habit-selector-modal.active, .habit-settings-modal.active { display: flex; }
+   .habit-selector-content, .habit-settings-content { position: relative; width: 100%; max-width: 480px; background: #fff; border-radius: 16px; padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 18px; }
+   .habit-selector-close, .habit-settings-close { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; font-size: 17px; color: #999; background: none; border: none; cursor: pointer; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+   .habit-selector-close:hover, .habit-settings-close:hover { color: #111; background: #f5f5f5; }
+   .habit-selector-title, .habit-settings-header h3 { font-size: 19px; font-weight: 600; color: #111; margin: 0; text-align: left; }
+   .habit-selector-subtitle { font-size: 13px; color: #888; text-align: center; margin-bottom: 8px; }
+   .habit-selector-list, .habit-settings-body { flex: 1; display: flex; flex-direction: column; gap: 7px; max-height: 55vh; overflow-y: auto; padding-right: 4px; }
+   .habit-option, .setting-formula { padding: 13px 15px; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; cursor: pointer; transition: all 0.2s; font-size: 14px; color: #333; text-align: left; }
+   .habit-option:hover { border-color: #111; background: #fafafa; transform: translateX(2px); }
+   .habit-option:active { transform: translateX(0); background: #f0f0f0; }
+   .setting-field { display: flex; flex-direction: column; gap: 6px; }
+   .setting-label { font-size: 12px; color: #888; letter-spacing: 0.2px; }
+   .formula-input { width: 100%; border: none; border-bottom: 1.5px solid #e5e5e5; padding: 6px 0; font-size: 15px; color: #111; outline: none; transition: border-color 0.2s; font-family: inherit; }
+   .formula-input:focus { border-color: #111; }
+   .setting-reminder { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f5f5f5; }
+   .toggle-label { font-size: 14px; color: #333; cursor: pointer; }
+   .time-input { border: 1px solid #eee; padding: 4px 9px; border-radius: 5px; font-size: 15px; color: #333; }
+   .time-input:disabled { background: #f9f9f9; color: #ccc; cursor: not-allowed; }
+   .habit-settings-footer { display: flex; align-items: center; gap: 9px; margin-top: 8px; }
+   .settings-footer-spacer { flex: 1; }
+   .settings-btn { padding: 9px 18px; border-radius: 7px; border: 1px solid transparent; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+   .settings-btn.cancel { background: #fff; color: #666; border-color: #e5e5e5; }
+   .settings-btn.cancel:hover { border-color: #bbb; color: #111; }
+   .settings-btn.save { background: #111; color: #fff; }
+   .settings-btn.save:hover { background: #333; }
+   .settings-btn.delete { background: none; color: #999; padding-left: 0; padding-right: 0; }
+   .settings-btn.delete:hover { color: #111; text-decoration: underline; }
+
+   /* Модалка подтверждения удаления */
+   #confirm-modal { z-index: 2700; } /* выше модалки настроек привычки (2500) и разблокировки игры (2600) */
+   .confirm-content { max-width: 340px; gap: 22px; text-align: center; }
+   .confirm-text { font-size: 15px; color: #111; line-height: 1.5; margin: 0; }
+   .confirm-actions { display: flex; justify-content: center; gap: 10px; }
+   .habit-selector-list::-webkit-scrollbar, .habit-settings-body::-webkit-scrollbar { width: 4px; }
+   .habit-selector-list::-webkit-scrollbar-track, .habit-settings-body::-webkit-scrollbar-track { background: #f5f5f5; border-radius: 2px; }
+   .habit-selector-list::-webkit-scrollbar-thumb, .habit-settings-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+
+   /* =========================================
+      МОДАЛКА: РАЗБЛОКИРОВКА ИГРЫ
+      ========================================= */
+   .game-unlock-modal { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.96); z-index: 2600; align-items: center; justify-content: center; padding: 24px; }
+   .game-unlock-modal.active { display: flex; }
+   .game-unlock-content { width: 100%; max-width: 420px; background: #fff; border: 1px solid #eee; border-radius: 16px; padding: 28px 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.12); text-align: center; }
+   .game-unlock-badge { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #888; border: 1px solid #e5e5e5; border-radius: 20px; padding: 4px 12px; margin-bottom: 14px; }
+   .game-unlock-title { font-size: 22px; font-weight: 700; color: #111; margin: 0 0 4px; }
+   .game-unlock-subtitle { font-size: 13px; color: #999; margin: 0 0 20px; }
+   .game-unlock-list { display: flex; flex-direction: column; gap: 10px; }
+   .game-option { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 14px 16px; background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; cursor: pointer; transition: all 0.18s ease; font-family: inherit; }
+   .game-option:hover { border-color: #111; background: #fafafa; transform: translateY(-1px); }
+   .game-option-name { font-size: 15px; font-weight: 600; color: #111; }
+   .game-option-desc { font-size: 12px; color: #888; }
+   
+   /* =========================================
+      УВЕДОМЛЕНИЯ И АНИМАЦИИ
+      ========================================= */
+   .reminder-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%) translateY(100px); background: #fff; border: 1px solid #eee; border-radius: 11px; padding: 13px 18px; box-shadow: 0 8px 25px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px; z-index: 3000; opacity: 0; transition: all 0.4s cubic-bezier(0.175,0.885,0.32,1.275); max-width: 90%; width: 320px; }
+   .reminder-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+   .toast-icon { font-size: 22px; }
+   .reminder-toast strong { display: block; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+   .reminder-toast p { margin: 2px 0 0; font-size: 15px; color: #111; font-weight: 600; }
+   .reminder-toast small { color: #888; font-size: 11px; display: block; margin-top: 2px; }
+   .toast-close { background: none; border: none; font-size: 17px; color: #999; cursor: pointer; margin-left: auto; padding: 4px; }
+   
+   .level-up-animation { position: fixed; bottom: 0; right: 0; z-index: 3000; pointer-events: none; transform: translate(100%, 100%); transition: transform 0.8s cubic-bezier(0.22,1,0.36,1); display: flex; align-items: flex-end; justify-content: flex-end; will-change: transform; }
+   .level-up-animation.show { transform: translate(0, 0); }
+   .level-up-wolf { width: 500px; height: auto; display: block; margin: 0; padding: 0; }
+   
+   /* серия (стрик) задаётся выше в блоке строки привычки — моно, ч/б */
+
+   /* =========================================
+      ВИД «МЕСЯЦ» — ТЕПЛОВАЯ КАРТА / ИСТОРИЯ
+      ========================================= */
+   .month-head { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 14px; }
+   .month-nav { background: none; border: 1px solid #e0e0e0; color: #888; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; transition: all 0.2s; }
+   .month-nav:hover { border-color: #111; color: #111; }
+   .month-label { font-size: 16px; font-weight: 600; color: #111; min-width: 150px; text-align: center; letter-spacing: 0.3px; }
+
+   .month-summary { display: flex; justify-content: center; gap: 30px; margin-bottom: 10px; }
+   .month-stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #999; letter-spacing: 0.3px; }
+   .month-stat span { font-size: 21px; font-weight: 700; color: #111; line-height: 1.15; }
+
+   .month-progress { height: 4px; background: #f0f0f0; border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
+   .month-progress-fill { height: 100%; background: #111; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+   .month-hint { text-align: center; font-size: 11px; color: #ccc; font-style: italic; margin-bottom: 22px; }
+   .month-empty { text-align: center; color: #999; font-size: 13px; padding: 24px 0; }
+
+   .heatmap { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
+   .hm-row { display: flex; flex-direction: column; gap: 5px; }
+   .hm-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+   .hm-label { font-size: 13px; color: #222; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+   .hm-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+   .hm-streak { display: inline-flex; align-items: center; gap: 2px; color: #444; }
+   .hm-streak .flame { color: #555; }
+   .hm-count { color: #bbb; font-weight: 500; }
+   .hm-cells { display: grid; gap: 2px; }
+   .hm-cell { aspect-ratio: 1; background: #ececec; border-radius: 2px; cursor: pointer; transition: background 0.15s, transform 0.1s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+   .hm-wd { font-size: 7px; line-height: 1; color: #111; pointer-events: none; letter-spacing: -0.5px; }
+   .hm-cell.done .hm-wd { color: #111; }
+   .hm-cell:hover { transform: scale(1.3); outline: 1.5px solid #bbb; position: relative; z-index: 1; }
+   .hm-cell.done { background: #111; }
+   .hm-cell.today { box-shadow: 0 0 0 1.5px #111; }
+   .hm-cell.future { background: #f7f7f7; cursor: default; }
+   .hm-cell.future:hover { transform: none; outline: none; }
+
+   .month-chart-block { margin-top: 4px; }
+   .month-chart-title { font-size: 12px; color: #999; letter-spacing: 0.5px; text-transform: uppercase; text-align: center; margin-bottom: 8px; }
+   .month-chart-block canvas { height: 150px; }
+   .month-legend { display: flex; justify-content: center; gap: 18px; margin-top: 4px; font-size: 11px; }
+   .lg-mood { color: #111; }
+   .lg-sleep { color: #999; }
+
+   /* =========================================
+      КОЛЕСО ЖИЗНИ
+      ========================================= */
+   .life-wheel { margin: 26px 0 14px; }
+   .wheel-empty { font-size: 12px; color: #bbb; text-align: center; padding: 18px 12px; line-height: 1.5; }
+   .month-wheel-block { margin: 6px 0 22px; }
+
+   /* Сферы в настройках привычки */
+   .setting-areas { display: flex; flex-wrap: wrap; gap: 7px; }
+   .area-chip { font-size: 13px; color: #555; background: #fff; border: 1px solid #e0e0e0; border-radius: 999px; padding: 6px 12px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+   .area-chip:hover { border-color: #111; color: #111; }
+   .area-chip.sel { background: #111; color: #fff; border-color: #111; }
+
+   /* =========================================
+      ТУМБЛЕР PSYCHO MODE
+      ========================================= */
+   #psycho-toggle { display: flex; align-items: center; gap: 10px; width: fit-content; margin: 0 auto 8px; padding: 6px 8px 6px 16px; background: #f5f5f5; border: 1px solid #ececec; border-radius: 999px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+   #psycho-toggle:hover { border-color: #ddd; }
+   .pt-label { font-size: 12px; color: #777; letter-spacing: 0.3px; }
+   #psycho-toggle.on .pt-label { color: #111; font-weight: 500; }
+   .pt-switch { width: 34px; height: 20px; border-radius: 999px; background: #cfcfcf; position: relative; transition: background 0.2s; flex: 0 0 auto; }
+   .pt-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+   #psycho-toggle.on .pt-switch { background: #111; }
+   #psycho-toggle.on .pt-switch::after { left: 16px; }
+
+   /* =========================================
+      PSYCHO MODE — МЕТРИКИ
+      ========================================= */
+   .metric-row { padding: 12px 0; border-bottom: 1px solid #f3f3f3; }
+   .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+   .metric-name { font-size: 16px; color: #111; display: flex; align-items: center; gap: 8px; }
+   .metric-tag { font-size: 10px; color: #888; border: 1px solid #ddd; border-radius: 999px; padding: 0 7px; }
+   .metric-val { font-size: 13px; color: #999; white-space: nowrap; font-variant-numeric: tabular-nums; }
+   .metric-val b { color: #111; font-weight: 600; }
+   .metric-val.over::after { content: " · превышен"; color: #111; font-weight: 500; }
+   .metric-bar { height: 6px; border-radius: 999px; background: #f0f0f0; overflow: hidden; }
+   .metric-bar > i { display: block; height: 100%; background: #111; transition: width 0.3s ease; }
+   .metric-bar.over { box-shadow: 0 0 0 1.5px #111; }
+   .metric-actions { display: flex; align-items: center; gap: 8px; row-gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+   .metric-input { width: 120px; height: 32px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-size: 14px; font-family: inherit; outline: none; }
+   .metric-input:focus { border-color: #111; }
+   .metric-add { width: 32px; height: 32px; border: 1px solid #111; background: #111; color: #fff; border-radius: 7px; font-size: 16px; line-height: 1; cursor: pointer; flex: 0 0 auto; }
+   .metric-goal, .metric-reset, .metric-del { background: none; border: none; color: #999; font-size: 12px; cursor: pointer; font-family: inherit; padding: 4px 2px; }
+   .metric-goal:hover, .metric-reset:hover { color: #111; text-decoration: underline; }
+   .metric-goal { margin-left: auto; }
+   .metric-del { color: #ccc; }
+   .metric-del:hover { color: #111; text-decoration: underline; }
+
+   /* Инлайн-редактор цели */
+   .goal-edit-label { font-size: 12px; color: #888; }
+   .goal-edit-input { width: 78px; height: 32px; border: 1px solid #111; border-radius: 7px; padding: 0 10px; font-size: 14px; font-family: inherit; outline: none; }
+   .goal-edit-unit { font-size: 13px; color: #888; }
+   .goal-edit-save { height: 32px; padding: 0 14px; border: 1px solid #111; background: #111; color: #fff; border-radius: 7px; font-size: 13px; cursor: pointer; font-family: inherit; }
+   .goal-edit-cancel { width: 32px; height: 32px; border: 1px solid #e0e0e0; background: #fff; color: #999; border-radius: 7px; cursor: pointer; }
+   .goal-edit-cancel:hover { border-color: #111; color: #111; }
+
+   /* Добавление показателя (psycho mode) */
+   .psycho-add { padding: 6px 0 2px; }
+   .psycho-add-btn { width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 15px; color: #bbb; padding: 10px 0; cursor: pointer; }
+   .psycho-add-btn:hover { color: #111; }
+   .psycho-add-form { padding: 6px 0 4px; }
+   .pam-name { width: 100%; border: none; border-bottom: 1px solid #e0e0e0; background: transparent; font-family: inherit; font-size: 15px; color: #111; padding: 8px 0; outline: none; margin-bottom: 12px; }
+   .pam-name:focus { border-color: #111; }
+   .pam-name::placeholder, .pam-unit::placeholder, .pam-target::placeholder { color: #bbb; }
+   .pam-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+   .pam-type { display: inline-flex; border: 1px solid #e0e0e0; border-radius: 7px; overflow: hidden; flex: 0 0 auto; }
+   .pam-type-btn { border: none; background: #fff; color: #999; font-family: inherit; font-size: 13px; padding: 0 14px; height: 34px; cursor: pointer; }
+   .pam-type-btn.active { background: #111; color: #fff; }
+   .pam-target { width: 96px; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-size: 14px; font-family: inherit; outline: none; }
+   .pam-unit { width: 110px; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-size: 14px; font-family: inherit; outline: none; }
+   .pam-target:focus, .pam-unit:focus { border-color: #111; }
+   .pam-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 14px; }
+   .pam-cancel { background: none; border: none; color: #999; font-family: inherit; font-size: 14px; cursor: pointer; padding: 8px 6px; }
+   .pam-cancel:hover { color: #111; }
+   .pam-save { background: #111; color: #fff; border: none; border-radius: 7px; font-family: inherit; font-size: 14px; padding: 9px 18px; cursor: pointer; }
+
+   /* Сводка метрик за месяц (psycho mode) */
+   .pm-list { margin-top: 4px; }
+   .pm-row { padding: 12px 0; border-bottom: 1px solid #f3f3f3; }
+   .pm-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+   .pm-name { font-size: 15px; color: #111; display: flex; align-items: center; gap: 8px; }
+   .pm-val { font-size: 13px; color: #999; white-space: nowrap; font-variant-numeric: tabular-nums; }
+   .pm-val b { color: #111; font-weight: 600; }
+   .pm-val.over::after { content: " · превышен"; color: #111; font-weight: 500; }
+
+   /* Игра «Быстрое судоку» */
+   #sudoku-grid { display: grid; grid-template-columns: repeat(9, 1fr); width: 100%; max-width: 320px; margin: 0 auto; border: 2px solid #111; border-radius: 6px; overflow: hidden; }
+   .sudoku-cell { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; width: 100%; font-size: 16px; border: 0.5px solid #e0e0e0; box-sizing: border-box; }
+   .sudoku-cell.given { color: #111; background: #fafafa; font-weight: 500; }
+   .sudoku-cell.blank { color: #111; background: #fff; text-align: center; padding: 0; border-radius: 0; outline: none; font-family: inherit; }
+   .sudoku-cell.blank:focus { background: #f2f2f2; border-color: #111; }
+   .sudoku-cell.blank.right { background: #111; color: #fff; }
+   .sudoku-cell.blank.wrong { box-shadow: inset 0 0 0 2px #111; }
+   .sudoku-cell.br-top { border-top: 2px solid #111; }
+   .sudoku-cell.br-left { border-left: 2px solid #111; }
+
+   /* =========================================
+      ПИТОМЕЦ (каркас; визуал добавим отдельно)
+      ========================================= */
+   #view-pet { text-align: center; }
+   .pet-stage { font-size: 13px; color: #999; letter-spacing: 0.5px; margin: 8px 0 16px; }
+   .pet-figure { width: 200px; height: 200px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; border: 1.5px dashed #dcdcdc; border-radius: 50%; transition: transform 0.3s; }
+   .pet-figure.has-img { border: none; border-radius: 0; }
+   .pet-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+   .pet-placeholder { font-size: 13px; color: #bbb; line-height: 1.5; }
+   .pet-placeholder span { font-size: 11px; color: #ccc; }
+   .pet-figure.bounce { animation: petBounce 0.45s ease; }
+   @keyframes petBounce { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.08); } 60% { transform: scale(0.97); } }
+   .pet-mood { font-size: 18px; font-weight: 600; color: #111; margin-bottom: 2px; }
+   .pet-mood-note { font-weight: 400; color: #999; font-size: 14px; }
+   .pet-care { max-width: 360px; margin: 18px auto 0; text-align: left; }
+   .pet-care-top { display: flex; justify-content: space-between; font-size: 12px; color: #999; margin-bottom: 6px; }
+   .pet-care-pct { color: #111; font-weight: 600; }
+   .pet-care-bar { height: 6px; background: #f0f0f0; border-radius: 999px; overflow: hidden; }
+   .pet-care-bar > i { display: block; height: 100%; background: #111; transition: width 0.4s ease; }
+   .pet-stats { display: flex; justify-content: center; gap: 28px; margin: 22px 0; }
+   .pet-stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #999; }
+   .pet-stat span { font-size: 19px; font-weight: 700; color: #111; }
+   .pet-pet-btn { background: none; border: 1px solid #e0e0e0; border-radius: 999px; padding: 9px 22px; font-size: 13px; color: #555; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+   .pet-pet-btn:hover { border-color: #111; color: #111; }
+
+   /* «Бегающий» питомец (десктоп) */
+   #pet-roamer { position: fixed; top: 0; left: 0; width: 52px; height: 52px; display: none; z-index: 1500; cursor: pointer; transition: transform 4s ease-in-out; }
+   .pet-roamer-ph { width: 100%; height: 100%; border: 1.5px dashed #ccc; border-radius: 50%; background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: center; font-size: 9px; color: #bbb; }
+   @media (max-width: 900px) { #pet-roamer { display: none !important; } }
+
+   /* =========================================
+      ОНБОРДИНГ
+      ========================================= */
+   .dash-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+   .icon-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #e0e0e0; background: #fff; color: #999; font-size: 15px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; font-family: inherit; transition: all 0.2s; }
+   .icon-btn:hover { border-color: #111; color: #111; }
+
+   .onb-hint { display: none; align-items: center; gap: 12px; background: #f5f5f5; border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; margin: 0 0 14px; font-size: 13px; color: #444; line-height: 1.45; }
+   .onb-hint-text { flex: 1; }
+   .onb-hint-close { background: none; border: 1px solid #ddd; border-radius: 7px; padding: 5px 11px; font-size: 12px; color: #666; cursor: pointer; flex-shrink: 0; font-family: inherit; }
+   .onb-hint-close:hover { border-color: #111; color: #111; }
+
+   /* Коачмарки: затемнение через box-shadow «дырки» + карточка-подсказка */
+   #coach-overlay { position: fixed; inset: 0; z-index: 4000; display: none; }
+   #coach-overlay.active { display: block; }
+   #coach-hole { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(17,17,17,0.62); transition: all 0.25s ease; pointer-events: none; }
+   #coach-tip { position: fixed; max-width: 300px; width: calc(100% - 32px); background: #fff; border-radius: 14px; padding: 16px 18px; box-shadow: 0 16px 50px rgba(0,0,0,0.28); }
+   .coach-text { font-size: 15px; line-height: 1.45; color: #111; margin: 0 0 14px; }
+   .coach-tip-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+   .coach-counter { font-size: 12px; color: #aaa; font-variant-numeric: tabular-nums; }
+   .coach-btns { display: flex; align-items: center; gap: 6px; }
+   .coach-skip { background: none; border: none; color: #999; font-size: 13px; cursor: pointer; font-family: inherit; padding: 8px 6px; }
+   .coach-skip:hover { color: #111; }
+   .coach-next { background: #111; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; cursor: pointer; font-family: inherit; }
+
+   /* Инверсия цветов в psycho mode (приложение монохромное → чистый негатив) */
+   #dashboard-screen.psycho-invert { filter: invert(1); }
+   #dashboard-screen.psycho-invert img { filter: invert(1); } /* картинки оставляем нормальными */
+
+   /* =========================================
+      АДАПТИВ
+      ========================================= */
+   @media (max-width: 600px) {
+       #dashboard-screen { padding: 15px; }
+       #dash-identity-name { font-size: 26px; }
+       .level-value { font-size: 22px; }
+       .dash-habit-text { font-size: 17px; }
+       .dash-habit-xp { font-size: 11px; }
+       .view-switcher { max-width: 100%; gap: 4px; padding: 0 2px; }
+       .view-btn { padding: 7px 2px; border-radius: 8px; }
+       .vb-ico { font-size: 16px; }
+       .vb-txt { font-size: 9px; }
+       .scale-btn { width: 22px; height: 22px; font-size: 9px; }
+       #training-games-container #game-grid { grid-template-columns: repeat(3, 1fr); }
+       .level-up-wolf { width: 350px; }
+       .month-summary { gap: 20px; }
+       .hm-label { font-size: 12px; }
+   }
+   @media (max-width: 400px) {
+       .training-menu { grid-template-columns: 1fr; }
+       #training-games-container #game-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+       .level-up-wolf { width: 280px; }
+       .vb-txt { font-size: 8px; }
+   }
