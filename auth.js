@@ -1,24 +1,47 @@
 // === АККАУНТЫ (Supabase) — Фаза 1 ===
 // Опциональный вход: трекер работает локально как раньше; вход добавляет облако/семью.
 // Ключ publishable — публичный по дизайну (данные защищает RLS), его безопасно держать во фронте.
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const SUPABASE_URL = 'https://sgsqgpthfufbbyukifbn.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_SpPL3tZYVTiUe1ViOkpi8g_VFoAfT9e';
-// persistSession + autoRefreshToken → юзер остаётся залогинен между визитами:
-// сессия хранится в localStorage, короткий access-токен сам обновляется по refresh-токену.
-// Жёсткий лимит «сессия на месяц» задаётся в дашборде: Authentication → Sessions (time-box / inactivity).
-const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'habit_auth' }
-});
-window.sb = sb; // пригодится для следующих фаз (синк, семья)
+let sb; // создаётся отложенно в boot() — см. причину ниже
 
 const $ = (id) => document.getElementById(id);
 let mode = 'login'; // 'login' | 'register'
 let me = null, myEmail = null; // id/email залогиненного
+let mandatory = false, onAuthed = null; // принудительный вход после тапа по заставке
+
+const TIMED_OUT = Symbol('timeout');
+// Защита от зависшего запроса к Supabase (см. коммент у boot()): если промис не резолвится за
+// ms — не блокируем UI навсегда, продолжаем с TIMED_OUT вместо ответа.
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(TIMED_OUT), ms))]);
+}
+// Резервное чтение сессии напрямую из localStorage — на случай, если sb.auth.getSession() завис.
+// Формат стабилен (стандартный Supabase-сейв под storageKey 'habit_auth').
+function readStoredSession() {
+  try {
+    const raw = localStorage.getItem('habit_auth');
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p && p.user && p.expires_at && p.expires_at > Date.now() / 1000) return p;
+  } catch (e) {}
+  return null;
+}
 
 function openModal() { $('auth-modal').classList.add('active'); }
-function closeModal() { $('auth-modal').classList.remove('active'); }
+function closeModal() { if (mandatory) return; $('auth-modal').classList.remove('active'); } // в mandatory-режиме не закрыть мимо входа
+
+// Вызывается из habbittracker.js после тапа по заставке: показывает форму и НЕ пускает дальше,
+// пока юзер не авторизуется (закрыть модалку X/бэкдропом/Esc нельзя, пока mandatory=true).
+function requireAuth(cb) {
+  mandatory = true;
+  onAuthed = cb;
+  $('auth-modal').classList.add('mandatory');
+  setMode('register'); // новый юзер — по умолчанию регистрация; переключиться на вход можно
+  openModal();
+}
 
 function setMode(m) {
   mode = m;
@@ -32,7 +55,14 @@ function setMode(m) {
 }
 
 async function refresh() {
-  const { data: { session } } = await sb.auth.getSession();
+  let session = null;
+  const r = await withTimeout(sb.auth.getSession(), 4000);
+  if (r === TIMED_OUT) {
+    console.warn('⚠️ sb.auth.getSession() завис — читаю сессию напрямую из localStorage');
+    session = readStoredSession();
+  } else {
+    session = r.data.session;
+  }
   const inUser = session && session.user;
   $('auth-form-wrap').style.display = inUser ? 'none' : 'block';
   $('auth-profile').style.display = inUser ? 'block' : 'none';
@@ -43,8 +73,9 @@ async function refresh() {
   $('prof-email').textContent = myEmail;
   $('prof-id').textContent = '…';
   // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
-  const { data, error } = await sb.from('profiles').select('invite_id').eq('id', me).single();
-  $('prof-id').textContent = (!error && data && data.invite_id) ? data.invite_id : 'нет профиля — запусти SQL в Supabase';
+  const pr = await withTimeout(sb.from('profiles').select('invite_id').eq('id', me).single(), 4000);
+  if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; }
+  else { const { data, error } = pr; $('prof-id').textContent = (!error && data && data.invite_id) ? data.invite_id : 'нет профиля — запусти SQL в Supabase'; }
   syncMyStats();  // отправить свою сводку в облако
   loadFamily();   // входящие приглашения + семья
 }
@@ -67,13 +98,16 @@ async function syncMyStats() {
 // === СЕМЬЯ (Фаза 3) ===
 async function loadFamily() {
   if (!me) return;
-  const { data: incoming } = await sb.from('invites').select('id, from_code').eq('to_id', me).eq('status', 'pending');
-  renderIncoming(incoming || []);
-  const { data: acc } = await sb.from('invites').select('from_id, to_id').eq('status', 'accepted'); // RLS вернёт только мои
-  const friendIds = (acc || []).map(r => r.from_id === me ? r.to_id : r.from_id);
+  const r1 = await withTimeout(sb.from('invites').select('id, from_code').eq('to_id', me).eq('status', 'pending'), 4000);
+  if (r1 === TIMED_OUT) return; // сеть подвисла — тихо выходим, следующий refresh() попробует снова
+  renderIncoming(r1.data || []);
+  const r2 = await withTimeout(sb.from('invites').select('from_id, to_id').eq('status', 'accepted'), 4000); // RLS вернёт только мои
+  if (r2 === TIMED_OUT) return;
+  const friendIds = (r2.data || []).map(r => r.from_id === me ? r.to_id : r.from_id);
   if (!friendIds.length) { renderFamily([]); return; }
-  const { data: fstats } = await sb.from('stats').select('*').in('id', friendIds);
-  renderFamily(fstats || []);
+  const r3 = await withTimeout(sb.from('stats').select('*').in('id', friendIds), 4000);
+  if (r3 === TIMED_OUT) return;
+  renderFamily(r3.data || []);
 }
 async function sendInvite() {
   const code = $('fam-invite-input').value.trim().toUpperCase();
@@ -130,6 +164,13 @@ async function submit() {
       if (error) { err.textContent = error.message; return; }
     }
     await refresh();
+    if (mandatory) { // вход пройден — снимаем принудительный режим и пускаем дальше
+      const cb = onAuthed;
+      mandatory = false; onAuthed = null;
+      $('auth-modal').classList.remove('mandatory');
+      closeModal();
+      if (cb) cb();
+    }
   } catch (e) {
     err.textContent = 'Сеть недоступна, попробуй ещё раз';
   } finally {
@@ -157,6 +198,23 @@ function wire() {
   sb.auth.onAuthStateChange(() => refresh());
 }
 
-wire();
-setMode('login');
-refresh();
+// Клиент создаём ОТЛОЖЕННО (после window 'load' + доп. задержка), а не сразу при выполнении
+// модуля. Эмпирически подтверждено (2 CDN-сборки, повторяемо): если создать Supabase-клиент
+// синхронно в теле module-скрипта и сразу восстановить сессию из localStorage, ВСЕ его вызовы
+// (getSession/.from/.rpc) зависают НАВСЕГДА — без ошибки, без сетевого запроса, без Web Lock
+// (navigator.locks.query() пуст). Тот же клиент, созданный чуть позже (после полной загрузки
+// страницы), работает мгновенно. Причина похожа на баг браузерного окружения/CDP-таймингов,
+// не в нашем коде — воспроизводили точечно через navigator.locks.request() (работает изолированно)
+// и autoRefreshToken:false (не помогает само по себе). Если апстрим починят — можно попробовать убрать.
+function boot() {
+  sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: 'habit_auth' }
+  });
+  window.sb = sb;
+  window.requireAuth = requireAuth;
+  wire();
+  setMode('login');
+  refresh();
+}
+if (document.readyState === 'complete') setTimeout(boot, 0);
+else window.addEventListener('load', () => setTimeout(boot, 0));

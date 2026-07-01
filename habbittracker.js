@@ -243,6 +243,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1500);
     }
 
+    // Ждём window.requireAuth (auth.js — модуль, грузится асинхронно с CDN). Не бесконечно:
+    // если за 10с не подгрузился (сеть/CDN легли), даём понятную ошибку вместо вечного спиннера.
+    function waitForAuthGate(onReady, onTimeout, triesLeft) {
+        if (triesLeft === undefined) triesLeft = 100;
+        if (window.requireAuth) { onReady(); return; }
+        if (triesLeft <= 0) { onTimeout(); return; }
+        setTimeout(() => waitForAuthGate(onReady, onTimeout, triesLeft - 1), 100);
+    }
+
     introScreen.addEventListener('click', () => {
         clearInterval(phraseInterval);
         loadingOverlay.classList.add('active');
@@ -250,11 +259,26 @@ document.addEventListener('DOMContentLoaded', () => {
             introScreen.style.opacity = '0';
             setTimeout(() => {
                 introScreen.style.display = 'none';
-                loadingOverlay.classList.remove('active');
-                dashState = createDefaultState(); // первый запуск — дефолтные привычки
-                window.dashState = dashState;
-                saveProgress();
-                showDashboard(); // тап → «День»
+                // Вход обязателен: показываем форму входа/регистрации и не пускаем в «День»,
+                // пока юзер не авторизуется. Дефолтные привычки создаём только ПОСЛЕ входа.
+                waitForAuthGate(
+                    () => {
+                        loadingOverlay.classList.remove('active');
+                        window.requireAuth(() => {
+                            dashState = createDefaultState(); // первый запуск — дефолтные привычки
+                            window.dashState = dashState;
+                            saveProgress();
+                            showDashboard(); // вход пройден → «День»
+                        });
+                    },
+                    () => {
+                        loadingOverlay.classList.remove('active');
+                        introScreen.style.display = 'flex';
+                        introScreen.style.opacity = '1';
+                        const hint = document.querySelector('.hint-text');
+                        if (hint) hint.textContent = 'Не удалось загрузить форму входа. Проверь соединение и обнови страницу.';
+                    }
+                );
             }, 500);
         }, 1500);
     });
@@ -414,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashState.habits.length < MAX_HABITS) {
             const add = document.createElement('div');
             add.className = 'dash-habit-add';
-            add.innerHTML = `<input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку">`;
+            add.innerHTML = `<input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="off" name="habit-${Date.now()}">`;
             list.appendChild(add);
             const inp = add.querySelector('#new-habit-input');
             inp.addEventListener('keydown', e => {
