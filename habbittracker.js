@@ -54,7 +54,28 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.warn('⚠️ Ошибка сохранения:', e);
         }
+        if (window.syncStats) window.syncStats(); // синк сводки в облако, если залогинен (auth.js дебаунсит)
     }
+
+    // Сводка для «семьи»: уровень, лучшая серия, % за 7 дней, последнее утреннее настроение
+    function getSummary() {
+        const habits = dashState.habits || [];
+        let streak = 0;
+        habits.forEach(h => { const s = currentStreak(h.uid); if (s > streak) streak = s; });
+        const now = new Date();
+        let done = 0, possible = 0;
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+            const rec = (dashState.history || {})[fdt(d.getFullYear(), d.getMonth(), d.getDate())] || {};
+            habits.forEach(h => { possible++; if (rec[h.uid]) done++; });
+        }
+        const weekPct = possible ? Math.round(done / possible * 100) : 0;
+        let mood = null;
+        const ch = dashState.checkinHistory || {};
+        Object.keys(ch).sort().forEach(k => { const m = ch[k] && ch[k].morning && ch[k].morning.mood; if (m != null && m !== '') mood = +m; });
+        return { level: dashState.level || 1, streak, weekPct, mood };
+    }
+    window.getSummary = getSummary;
 
     function loadProgress() {
         try {
