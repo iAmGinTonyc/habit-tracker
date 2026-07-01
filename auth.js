@@ -36,6 +36,7 @@ function closeModal() { if (mandatory) return; $('auth-modal').classList.remove(
 // Вызывается из habbittracker.js после тапа по заставке: показывает форму и НЕ пускает дальше,
 // пока юзер не авторизуется (закрыть модалку X/бэкдропом/Esc нельзя, пока mandatory=true).
 function requireAuth(cb) {
+  if (me) { cb(); return; } // уже залогинен (напр., сбросил локальный прогресс) — не мучаем повторным входом
   mandatory = true;
   onAuthed = cb;
   $('auth-modal').classList.add('mandatory');
@@ -55,6 +56,14 @@ function setMode(m) {
 }
 
 async function refresh() {
+  // Пока не знаем статус входа — показываем нейтральное «Проверяем…», а НЕ форму входа по
+  // умолчанию. Иначе при быстром клике на «Профиль» (модалка открывается раньше, чем refresh()
+  // успевает отработать) юзер видит форму входа, которая через секунду подменяется профилем —
+  // выглядит как «перелогинь меня» (баг, о котором сообщил юзер).
+  $('auth-checking').style.display = 'block';
+  $('auth-form-wrap').style.display = 'none';
+  $('auth-profile').style.display = 'none';
+
   let session = null;
   const r = await withTimeout(sb.auth.getSession(), 4000);
   if (r === TIMED_OUT) {
@@ -64,6 +73,7 @@ async function refresh() {
     session = r.data.session;
   }
   const inUser = session && session.user;
+  $('auth-checking').style.display = 'none';
   $('auth-form-wrap').style.display = inUser ? 'none' : 'block';
   $('auth-profile').style.display = inUser ? 'block' : 'none';
   $('profile-btn').classList.toggle('on', !!inUser);

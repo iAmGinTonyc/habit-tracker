@@ -438,7 +438,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashState.habits.length < MAX_HABITS) {
             const add = document.createElement('div');
             add.className = 'dash-habit-add';
-            add.innerHTML = `<input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="off" name="habit-${Date.now()}">`;
+            // autocomplete="off" Chrome иногда игнорирует для полей, похожих на логин (эвристика
+            // сохранённых паролей) — "new-password" он уважает надёжнее, хоть поле и не пароль.
+            add.innerHTML = `<input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}">`;
             list.appendChild(add);
             const inp = add.querySelector('#new-habit-input');
             inp.addEventListener('keydown', e => {
