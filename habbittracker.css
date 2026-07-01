@@ -8,12 +8,15 @@
       ЭКРАН 1: ИНТРО
       ========================================= */
    #intro-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: #fff; cursor: pointer; transition: opacity 1.2s ease; user-select: none; }
-   .wolf-container { text-align: center; max-width: 100%; width: 100%; padding: 20px 60px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
-   .wolf-avatar-img { width: 600px; height: auto; margin-bottom: 60px; animation: float 6s ease-in-out infinite; filter: grayscale(100%); opacity: 0.9; }
+   .intro-content { text-align: center; max-width: 760px; width: 100%; padding: 24px 34px; display: flex; flex-direction: column; align-items: center; }
+   .intro-title { font-size: 46px; font-weight: 300; letter-spacing: 0.5px; color: #111; margin: 0 0 26px; }
+   .intro-lead { font-size: 20px; line-height: 1.65; font-weight: 300; color: #555; margin: 0; max-width: 600px; }
    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
-   .phrase-container { height: 120px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
-   #intro-text { font-size: 50px; font-style: italic; line-height: 1.3; font-weight: 300; color: #666; opacity: 1; transition: opacity 1.5s ease; max-width: 1200px; width: 90%; letter-spacing: 0.5px; text-align: center; }
-   #intro-text.fade-out { opacity: 0; }
+   /* появление «из белого тумана» */
+   .intro-title, .intro-lead { opacity: 0; animation: fogIn 1.9s ease forwards; }
+   .intro-lead { animation-delay: 0.55s; }
+   @keyframes fogIn { from { opacity: 0; filter: blur(16px); transform: translateY(10px); } to { opacity: 1; filter: blur(0); transform: translateY(0); } }
+   @media (prefers-reduced-motion: reduce) { .intro-title, .intro-lead { opacity: 1; animation: none; } } /* без анимаций текст всё равно виден */
    .hint-text { position: absolute; bottom: 40px; right: 60px; font-size: 14px; color: #999; font-weight: 300; letter-spacing: 0.5px; opacity: 0.7; animation: pulse 3s ease-in-out infinite; }
    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.8; } }
    
@@ -131,10 +134,10 @@
    /* КНОПКИ ПЕРЕКЛЮЧЕНИЯ (2×2) */
    .view-switcher {
        display: grid;
-       grid-template-columns: repeat(5, 1fr); /* питомец скрыт → 5 вкладок (для 6 верни repeat(6,1fr) и max-width:600px) */
+       grid-template-columns: repeat(6, 1fr); /* 6 видимых: День/Месяц/Игры/Утро/Вечер/Питание (питомец скрыт) */
        gap: 6px;
        width: 100%;
-       max-width: 520px;
+       max-width: 600px;
        margin: 15px auto 10px;
        padding: 0 6px;
    }
@@ -451,6 +454,7 @@ canvas { width: 100%; height: 150px; }
    .formula-input { width: 100%; border: none; border-bottom: 1.5px solid #e5e5e5; padding: 6px 0; font-size: 15px; color: #111; outline: none; transition: border-color 0.2s; font-family: inherit; }
    .formula-input:focus { border-color: #111; }
    .setting-reminder { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f5f5f5; }
+   .toggle-wrapper { display: inline-flex; align-items: center; gap: 8px; }
    .toggle-label { font-size: 14px; color: #333; cursor: pointer; }
    .time-input { border: 1px solid #eee; padding: 4px 9px; border-radius: 5px; font-size: 15px; color: #333; }
    .time-input:disabled { background: #f9f9f9; color: #ccc; cursor: not-allowed; }
@@ -623,6 +627,55 @@ canvas { width: 100%; height: 150px; }
    .pam-cancel:hover { color: #111; }
    .pam-save { background: #111; color: #fff; border: none; border-radius: 7px; font-family: inherit; font-size: 14px; padding: 9px 18px; cursor: pointer; }
 
+   /* === ПИТАНИЕ === */
+   .food-form { margin-top: 4px; }
+   .food-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f3f3f3; }
+   .food-meal-name { width: 62px; flex: 0 0 auto; font-size: 15px; color: #111; }
+   .food-time { width: 96px; flex: 0 0 auto; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
+   .food-text { flex: 1; min-width: 0; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
+   .food-time:focus, .food-text:focus { border-color: #111; }
+   .food-text::placeholder { color: #bbb; }
+   .food-week-title { margin-top: 24px; }
+   .food-week { margin-top: 4px; }
+   .fw-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f3f3f3; }
+   .fw-row.today { background: #fafafa; }
+   .fw-axis-row { padding: 0 0 2px; border: none; }
+   .fw-day { width: 40px; flex: 0 0 auto; font-size: 13px; color: #111; padding-top: 1px; white-space: nowrap; }
+   .fw-day small { color: #999; margin-left: 3px; font-size: 11px; }
+   .fw-body { flex: 1; min-width: 0; }
+   .fw-axis { position: relative; height: 12px; }
+   .fw-axis span { position: absolute; transform: translateX(-50%); font-size: 10px; color: #bbb; white-space: nowrap; }
+   .fw-axis span:first-child { transform: translateX(0); }
+   .fw-axis span:last-child { transform: translateX(-100%); }
+   .fw-track { position: relative; height: 13px; margin: 1px 0 5px; }
+   .fw-track::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: #ededed; }
+   .fw-dot { position: absolute; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #111; transform: translateX(-50%); }
+   .fw-row.today .fw-dot { box-shadow: 0 0 0 2px #fafafa; }
+   .fw-meals { display: flex; flex-wrap: wrap; gap: 3px 12px; }
+   .fw-chip { font-size: 12px; color: #555; white-space: nowrap; }
+   .fw-chip b { color: #111; font-weight: 600; font-variant-numeric: tabular-nums; }
+   .fw-empty { font-size: 12px; color: #ccc; }
+
+   /* === КАСТОМНЫЙ КАЛЕНДАРЬ === */
+   .cal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 2800; display: flex; align-items: center; justify-content: center; padding: 20px; }
+   .cal-card { background: #fff; border: 1px solid #eee; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); padding: 16px; width: 300px; max-width: 100%; }
+   .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+   .cal-title { font-size: 15px; font-weight: 600; color: #111; }
+   .cal-nav { width: 32px; height: 32px; border: 1px solid #e5e5e5; background: #fff; border-radius: 8px; font-size: 18px; line-height: 1; color: #111; cursor: pointer; font-family: inherit; }
+   .cal-nav:hover { border-color: #111; }
+   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+   .cal-wd { margin-bottom: 4px; }
+   .cal-wd-cell { text-align: center; font-size: 11px; color: #aaa; padding: 4px 0; }
+   .cal-cell { height: 36px; border: none; background: none; font-family: inherit; font-size: 14px; color: #111; cursor: pointer; border-radius: 8px; padding: 0; }
+   .cal-cell.empty { visibility: hidden; }
+   .cal-cell:hover:not(:disabled):not(.empty) { background: #f2f2f2; }
+   .cal-cell.today { font-weight: 700; text-decoration: underline; }
+   .cal-cell.sel { background: #111; color: #fff; }
+   .cal-cell:disabled { color: #d8d8d8; cursor: default; }
+   .cal-foot { margin-top: 10px; text-align: center; }
+   .cal-today { background: none; border: none; color: #666; font-family: inherit; font-size: 13px; cursor: pointer; padding: 6px; }
+   .cal-today:hover { color: #111; text-decoration: underline; }
+
    /* Сводка метрик за месяц (psycho mode) */
    .pm-list { margin-top: 4px; }
    .pm-row { padding: 12px 0; border-bottom: 1px solid #f3f3f3; }
@@ -677,8 +730,34 @@ canvas { width: 100%; height: 150px; }
       ОНБОРДИНГ
       ========================================= */
    .dash-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+   .dash-topright { display: flex; align-items: center; gap: 8px; }
    .icon-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #e0e0e0; background: #fff; color: #999; font-size: 15px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; font-family: inherit; transition: all 0.2s; }
    .icon-btn:hover { border-color: #111; color: #111; }
+   .icon-btn.on { border-color: #111; color: #111; } /* залогинен */
+
+   /* === МОДАЛКА ПРОФИЛЬ/ВХОД === */
+   .auth-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 2900; align-items: center; justify-content: center; padding: 20px; }
+   .auth-modal.active { display: flex; }
+   .auth-card { position: relative; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); padding: 28px 24px 22px; width: 340px; max-width: 100%; }
+   .auth-close { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border: none; background: none; color: #bbb; font-size: 16px; cursor: pointer; }
+   .auth-close:hover { color: #111; }
+   .auth-title { font-size: 18px; font-weight: 600; color: #111; margin: 0 0 18px; }
+   .auth-input { width: 100%; height: 40px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 0 12px; font-size: 15px; font-family: inherit; color: #111; outline: none; margin-bottom: 10px; }
+   .auth-input:focus { border-color: #111; }
+   .auth-input::placeholder { color: #bbb; }
+   .auth-err { font-size: 13px; color: #111; min-height: 17px; margin: 2px 0 8px; line-height: 1.45; }
+   .auth-submit { width: 100%; height: 42px; border: none; background: #111; color: #fff; border-radius: 8px; font-size: 15px; font-family: inherit; cursor: pointer; }
+   .auth-submit:disabled { opacity: 0.5; cursor: default; }
+   .auth-switch { font-size: 13px; color: #888; margin-top: 14px; text-align: center; }
+   .auth-switch button { background: none; border: none; color: #111; font-family: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; padding: 0; }
+   .auth-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f1f1; }
+   .auth-k { font-size: 13px; color: #888; flex: 0 0 auto; }
+   .auth-v { font-size: 14px; color: #111; word-break: break-all; text-align: right; }
+   .auth-id { font-weight: 700; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+   .auth-copy { width: 100%; height: 38px; border: 1px solid #e0e0e0; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 16px; }
+   .auth-copy:hover { border-color: #111; }
+   .auth-logout { width: 100%; height: 38px; border: none; background: none; color: #999; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 6px; }
+   .auth-logout:hover { color: #111; text-decoration: underline; }
 
    .onb-hint { display: none; align-items: center; gap: 12px; background: #f5f5f5; border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; margin: 0 0 14px; font-size: 13px; color: #444; line-height: 1.45; }
    .onb-hint-text { flex: 1; }

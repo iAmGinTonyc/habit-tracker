@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "4599"],
       "port": 4599
+    },
+    {
+      "name": "streamcanvas",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/anton/Downloads/streamcanvas && PORT=3010 node server.js"],
+      "port": 3010
     }
   ]
 }

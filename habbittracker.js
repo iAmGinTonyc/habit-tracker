@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkins: { morning: {}, evening: {} },
         checkinHistory: {},
         history: {},        // постоянный лог выполнения привычек: { 'YYYY-MM-DD': { uid: true } }
+        foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { breakfast:{time,text}, lunch, dinner } }
         psychoMode: false,  // тумблер «psycho mode» (числовые метрики вместо привычек)
         metrics: [],        // живой список метрик (сидируется из DEFAULT_METRICS в init/createDefaultState)
         metricTargets: {},  // переопределённые цели метрик { metricId: число }
@@ -168,6 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkins: { morning: {}, evening: {} },
             checkinHistory: {},
             history: {},
+            foodLog: {},
             psychoMode: false,
             metrics: cloneMetrics(), // живой список числовых показателей (юзер добавляет/удаляет)
             metricTargets: {},
@@ -185,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.checkins) dashState.checkins = { morning: {}, evening: {} };
             if (!dashState.checkinHistory) dashState.checkinHistory = {};
             if (!dashState.history) dashState.history = {};
+            if (!dashState.foodLog) dashState.foodLog = {};
             if (!dashState.unlockedGames) dashState.unlockedGames = [];
             if (!dashState.metricLog) dashState.metricLog = {};
             if (!dashState.metricTargets) dashState.metricTargets = {};
@@ -202,8 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkNewDay();
             showDashboard(); // вернувшийся пользователь — сразу на «День»
         } else {
-            introScreen.style.opacity = '1';
-            phraseInterval = setInterval(changePhrase, 5000); // новый — интро с фразами
+            introScreen.style.opacity = '1'; // статичный текст-интро, фразы больше не сменяются
         }
     }
 
@@ -253,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (viewName === 'training') initTrainingMenu();
         else if (viewName === 'month') { monthCursor = null; renderMonthView(); }
         else if (viewName === 'pet') renderPet();
+        else if (viewName === 'food') renderFood();
         else if (viewName === 'morning' || viewName === 'evening') initCheckins(viewName);
         updateCheckinButtonPulse();
         maybeShowViewHint(viewName); // контекстная подсказка при первом заходе
@@ -884,6 +887,149 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // =========================================
+    //   ПИТАНИЕ (вкладка «Питание»)
+    //   foodLog[date] = { breakfast:{time,text}, lunch:{time,text}, dinner:{time,text} }
+    // =========================================
+    const MEALS = [
+        { id: 'breakfast', name: 'Завтрак' },
+        { id: 'lunch',     name: 'Обед' },
+        { id: 'dinner',    name: 'Ужин' }
+    ];
+    const FOOD_START = 5 * 60, FOOD_END = 24 * 60; // ось времени недельного графика: 5:00 .. 24:00
+    const escAttr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+
+    // даты текущей недели (Пн–Вс), содержащей сегодня
+    function weekDates() {
+        const now = new Date();
+        const dow = (now.getDay() + 6) % 7; // 0 = понедельник
+        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dow);
+        const tKey = todayKey();
+        return Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+            const key = fdt(d.getFullYear(), d.getMonth(), d.getDate());
+            return { key, wd: WD_SHORT[d.getDay()], dayNum: d.getDate(), isToday: key === tKey };
+        });
+    }
+    // 'HH:MM' → процент позиции на оси времени (или null, если времени нет)
+    function timeToPct(t) {
+        const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
+        if (!m) return null;
+        const mins = (+m[1]) * 60 + (+m[2]);
+        return Math.max(0, Math.min(100, (mins - FOOD_START) / (FOOD_END - FOOD_START) * 100));
+    }
+
+    function renderFood() {
+        const root = document.getElementById('view-food');
+        if (!root) return;
+        if (!dashState.foodLog) dashState.foodLog = {};
+        const tKey = todayKey();
+        const today = dashState.foodLog[tKey] || {};
+        const rows = MEALS.map(meal => {
+            const rec = today[meal.id] || {};
+            return `<div class="food-row" data-meal="${meal.id}">
+                <span class="food-meal-name">${meal.name}</span>
+                <input type="time" class="food-time" data-field="time" value="${escAttr(rec.time)}">
+                <input type="text" class="food-text" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
+            </div>`;
+        }).join('');
+        root.innerHTML = `
+            <h3 class="dash-subtitle">Питание сегодня</h3>
+            <div class="food-form">${rows}</div>
+            <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
+            <div class="food-week" id="food-week"></div>`;
+
+        // автосохранение по вводу (перерисовываем только недельный график, инпуты не трогаем)
+        root.querySelectorAll('.food-row').forEach(rowEl => {
+            const mealId = rowEl.dataset.meal;
+            rowEl.querySelectorAll('input').forEach(inp => {
+                inp.addEventListener('input', () => {
+                    if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
+                    if (!dashState.foodLog[tKey][mealId]) dashState.foodLog[tKey][mealId] = {};
+                    dashState.foodLog[tKey][mealId][inp.dataset.field] = inp.value;
+                    const r = dashState.foodLog[tKey][mealId];
+                    if (!r.time && !r.text) delete dashState.foodLog[tKey][mealId];           // пустой приём — убрать
+                    if (!Object.keys(dashState.foodLog[tKey]).length) delete dashState.foodLog[tKey]; // пустой день — убрать
+                    saveProgress();
+                    renderFoodWeek();
+                });
+            });
+        });
+        renderFoodWeek();
+    }
+
+    function renderFoodWeek() {
+        const wk = document.getElementById('food-week');
+        if (!wk) return;
+        const days = weekDates();
+        const axisRow = `<div class="fw-row fw-axis-row"><span class="fw-day"></span><div class="fw-body"><div class="fw-axis"><span style="left:0%">5:00</span><span style="left:36.8%">12:00</span><span style="left:68.4%">18:00</span><span style="left:100%">24:00</span></div></div></div>`;
+        const rows = days.map(day => {
+            const rec = (dashState.foodLog || {})[day.key] || {};
+            const meals = MEALS.map(m => ({ name: m.name, time: (rec[m.id] || {}).time, text: (rec[m.id] || {}).text }))
+                               .filter(m => m.time || m.text);
+            const dots = meals.map(m => {
+                const pct = timeToPct(m.time);
+                if (pct === null) return '';
+                return `<i class="fw-dot" style="left:${pct}%" title="${escAttr(m.name + ': ' + (m.time || '') + ' ' + (m.text || ''))}"></i>`;
+            }).join('');
+            const chips = meals.slice().sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
+                .map(m => `<span class="fw-chip">${m.time ? `<b>${m.time}</b> ` : ''}${m.text || m.name}</span>`).join('');
+            return `<div class="fw-row${day.isToday ? ' today' : ''}">
+                <span class="fw-day">${day.wd}<small>${day.dayNum}</small></span>
+                <div class="fw-body">
+                    <div class="fw-track">${dots}</div>
+                    <div class="fw-meals">${chips || '<span class="fw-empty">нет записей</span>'}</div>
+                </div>
+            </div>`;
+        }).join('');
+        wk.innerHTML = axisRow + rows;
+    }
+
+    // === КАСТОМНЫЙ КАЛЕНДАРЬ (попап выбора даты, ч/б; заменяет нативный date-picker) ===
+    const CAL_WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    function openCalendar(opts) {
+        opts = opts || {};
+        const sel = (opts.value && /^\d{4}-\d{2}-\d{2}$/.test(opts.value)) ? opts.value : todayKey();
+        const maxKey = opts.maxDate || todayKey(); // по умолчанию будущее недоступно
+        let vy = +sel.slice(0, 4), vm = +sel.slice(5, 7) - 1; // просматриваемые год/месяц
+
+        const overlay = document.createElement('div');
+        overlay.className = 'cal-overlay';
+        document.body.appendChild(overlay);
+        function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+        function onKey(e) { if (e.key === 'Escape') close(); }
+        document.addEventListener('keydown', onKey);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+        function draw() {
+            const startDow = (new Date(vy, vm, 1).getDay() + 6) % 7; // 0 = Пн
+            const days = daysInMonth(vy, vm);
+            let cells = '';
+            for (let i = 0; i < startDow; i++) cells += '<span class="cal-cell empty"></span>';
+            for (let d = 1; d <= days; d++) {
+                const key = fdt(vy, vm, d);
+                cells += `<button class="cal-cell${key === sel ? ' sel' : ''}${key === todayKey() ? ' today' : ''}" data-key="${key}"${key > maxKey ? ' disabled' : ''}>${d}</button>`;
+            }
+            overlay.innerHTML = `<div class="cal-card">
+                <div class="cal-head">
+                    <button class="cal-nav" data-nav="-1" type="button" aria-label="Предыдущий месяц">‹</button>
+                    <span class="cal-title">${MONTH_NAMES[vm]} ${vy}</span>
+                    <button class="cal-nav" data-nav="1" type="button" aria-label="Следующий месяц">›</button>
+                </div>
+                <div class="cal-grid cal-wd">${CAL_WD.map(w => `<span class="cal-wd-cell">${w}</span>`).join('')}</div>
+                <div class="cal-grid cal-days">${cells}</div>
+                <div class="cal-foot"><button class="cal-today" type="button" data-key="${todayKey()}">Сегодня</button></div>
+            </div>`;
+            overlay.querySelectorAll('.cal-nav').forEach(b => b.addEventListener('click', () => {
+                vm += (+b.dataset.nav); if (vm < 0) { vm = 11; vy--; } else if (vm > 11) { vm = 0; vy++; }
+                draw();
+            }));
+            overlay.querySelectorAll('.cal-cell[data-key]:not([disabled]), .cal-today').forEach(b =>
+                b.addEventListener('click', () => { close(); if (opts.onPick) opts.onPick(b.dataset.key); }));
+        }
+        draw();
+    }
+
+    // =========================================
     //   ПИТОМЕЦ (контракт для визуала, который добавим отдельно)
     //   стадия = от уровня; настроение = забота за 7 дней
     // =========================================
@@ -996,7 +1142,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit') || document.getElementById('dash-habit-list'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
         { target: () => document.getElementById('life-wheel-day'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
         { target: () => document.getElementById('psycho-toggle'), text: 'Psycho mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек.' },
-        { target: () => document.querySelector('.view-switcher'), text: 'Месяц — история и графики. Игры — мини-игры за уровни. Утро и Вечер — короткие чек-апы дня.' }
+        { target: () => document.querySelector('.view-switcher'), text: 'Месяц — история и графики. Игры — мини-игры за уровни. Утро и Вечер — чек-апы дня, Питание — дневник еды.' }
     ];
 
     const VIEW_HINTS = {
@@ -1675,10 +1821,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.classList.remove('active');
                     currentHistoryType = null;
                 } else {
-                    const dateInputEl = document.getElementById(`date-input-${type}`);
-                    if (dateInputEl) {
-                        dateInputEl.showPicker ? dateInputEl.showPicker() : dateInputEl.click();
-                    }
+                    // кастомный календарь → пишем выбранную дату в hidden-инпут и дёргаем его change
+                    openCalendar({
+                        value: currentHistoryDate,
+                        onPick: (dateStr) => {
+                            const di = document.getElementById(`date-input-${type}`);
+                            if (di) { di.value = dateStr; di.dispatchEvent(new Event('change')); }
+                        }
+                    });
                 }
             });
     
