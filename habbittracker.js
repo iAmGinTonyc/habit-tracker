@@ -582,9 +582,33 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="hm-label" title="${h.text}">${h.text}</span>
                         <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span></span>
                     </div>
-                    <div class="hm-cells" style="grid-template-columns:repeat(${days},1fr)">${cells}</div>`;
+                    <div class="hm-cells" style="--hm-days:${days}">${cells}</div>`;
                 hm.appendChild(rowEl);
             });
+
+            // Мобильная адаптация: тепловая карта скроллится горизонтально (в CSS — ровно 7 клеток
+            // видно за раз, см. .hm-cells в @media). Название привычки должно оставаться на месте —
+            // position:sticky тут ненадёжен (ломается после ~150px скролла в связке с calc()-шириной
+            // колонок и вложенным flex, проверено эмпирически), поэтому прилипание сделано вручную:
+            // на каждый scroll сдвигаем .hm-row-head обратно через transform, компенсируя scrollLeft.
+            const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
+            function syncHeatmapHeads() {
+                const offset = hm.scrollLeft;
+                hm.querySelectorAll('.hm-row-head').forEach(head => { head.style.transform = `translateX(${offset}px)`; });
+            }
+            if (isMobileHeatmap) hm.onscroll = syncHeatmapHeads;
+
+            // Для ТЕКУЩЕГО месяца сразу скроллим так, чтобы сегодня было первой видимой клеткой
+            // (дальше вправо — следующие 6 дней, влево — прошлое).
+            const now = new Date();
+            if (isMobileHeatmap && y === now.getFullYear() && m === now.getMonth()) {
+                const firstCell = hm.querySelector('.hm-cell');
+                if (firstCell) {
+                    const cellW = firstCell.getBoundingClientRect().width + 2; // +gap (.hm-cells{gap:2px})
+                    hm.scrollLeft = (now.getDate() - 1) * cellW;
+                }
+            }
+            if (isMobileHeatmap) syncHeatmapHeads(); // применить сразу, не дожидаясь события scroll
 
             // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {
