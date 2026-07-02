@@ -2,7 +2,10 @@
    БАЗА
    ========================================= */
    * { margin: 0; padding: 0; box-sizing: border-box; }
-   body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #fff; color: #111; height: 100vh; overflow: hidden; }
+   /* overflow:hidden ТОЛЬКО на body ненадёжен на iOS Safari — горизонтальный скролл всё равно
+      возможен (rubber-band), если хоть один элемент чуть шире вьюпорта. Нужен и на html тоже. */
+   html { overflow-x: hidden; width: 100%; }
+   body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; background: #fff; color: #111; height: 100vh; overflow: hidden; max-width: 100%; }
    
    /* =========================================
       ЭКРАН 1: ИНТРО
@@ -841,10 +844,9 @@ canvas { width: 100%; height: 150px; }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
        /* Тепловая карта на мобильном: горизонтальный скролл вместо сжатия всех дней в экран.
-          Название привычки — «прилипшая» колонка слева (position:sticky), сами дни скроллятся под
-          ней. Ширина клетки посчитана так, чтобы в видимой области помещалось ровно 7 колонок:
-          100vw − 30px (паддинг #dashboard-screen) − 80px (колонка названия) − 6px (зазор) = ширина
-          под 7 клеток. Стартовый scrollLeft (сегодня первой видимой) выставляется в JS. */
+          Название привычки — «прилипшая» колонка слева, сами дни скроллятся под ней. Ширина
+          клетки (--cell-w) считается в JS через clientWidth так, чтобы влезало ровно 7 колонок.
+          Стартовый scrollLeft (сегодня первой видимой) выставляется в JS. */
        .heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
        .hm-row { flex-direction: row; align-items: center; gap: 6px; }
        /* position:sticky тут ненадёжен (ломается после ~100-200px скролла в связке с calc()-шириной
@@ -857,7 +859,9 @@ canvas { width: 100%; height: 150px; }
            padding-right: 2px;
        }
        .hm-label { font-size: 12px; max-width: 80px; }
-       .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), calc((100vw - 116px) / 7)); }
+       /* --cell-w считается в JS через clientWidth (НЕ 100vw — на iOS Safari 100vw шире реального
+          вьюпорта, ломало верстку). 44px — запасной вариант, если JS почему-то не отработал. */
+       .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), var(--cell-w, 44px)); }
    }
    @media (max-width: 400px) {
        .training-menu { grid-template-columns: 1fr; }

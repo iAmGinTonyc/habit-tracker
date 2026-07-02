@@ -565,6 +565,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const hm = document.getElementById('heatmap');
         if (hm) {
+            // Ширина клетки на мобильном (7 колонок видно) считаем через document.documentElement
+            // .clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw надёжно шире реального видимого
+            // вьюпорта (известный баг), из-за чего верстка вылезала за экран. clientWidth свободен
+            // от этой особенности. offset = 30 (паддинг #dashboard-screen) + 80 (колонка названия) + 6 (зазор).
+            const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
+            const cellW = isMobileHeatmap ? Math.max(28, (document.documentElement.clientWidth - 116) / 7) : null;
             habits.forEach(h => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
@@ -582,7 +588,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="hm-label" title="${h.text}">${h.text}</span>
                         <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span></span>
                     </div>
-                    <div class="hm-cells" style="--hm-days:${days}">${cells}</div>`;
+                    <div class="hm-cells" style="--hm-days:${days}${cellW ? `;--cell-w:${cellW}px` : ''}">${cells}</div>`;
                 hm.appendChild(rowEl);
             });
 
@@ -591,7 +597,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // position:sticky тут ненадёжен (ломается после ~150px скролла в связке с calc()-шириной
             // колонок и вложенным flex, проверено эмпирически), поэтому прилипание сделано вручную:
             // на каждый scroll сдвигаем .hm-row-head обратно через transform, компенсируя scrollLeft.
-            const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
             function syncHeatmapHeads() {
                 const offset = hm.scrollLeft;
                 hm.querySelectorAll('.hm-row-head').forEach(head => { head.style.transform = `translateX(${offset}px)`; });
