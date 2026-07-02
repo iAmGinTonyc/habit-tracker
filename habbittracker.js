@@ -568,9 +568,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Ширина клетки на мобильном (7 колонок видно) считаем через document.documentElement
             // .clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw надёжно шире реального видимого
             // вьюпорта (известный баг), из-за чего верстка вылезала за экран. clientWidth свободен
-            // от этой особенности. offset = 30 (паддинг #dashboard-screen) + 80 (колонка названия) + 6 (зазор).
+            // от этой особенности. offset = 44 (паддинг #dashboard-screen, 22px×2) + 80 (колонка названия) + 6 (зазор).
             const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
-            const cellW = isMobileHeatmap ? Math.max(28, (document.documentElement.clientWidth - 116) / 7) : null;
+            const cellW = isMobileHeatmap ? Math.max(28, (document.documentElement.clientWidth - 130) / 7) : null;
             habits.forEach(h => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
