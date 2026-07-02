@@ -1184,6 +1184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================
     const DAY_TOUR = [
         { text: 'Привет! Это трекер привычек и твоего состояния. Покажу за 20 секунд, что где.' },
+        { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID для приглашений. Добавляй друзей и смотри их успехи.' },
         { target: () => document.querySelector('.dash-habit-row .habit-check'), text: 'Нажимай по квадрату, чтобы отметить привычку за день. За регулярность копится серия.' },
         { target: () => document.querySelector('.dash-habit-row .habit-settings-icon'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.' },
         { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit') || document.getElementById('dash-habit-list'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },

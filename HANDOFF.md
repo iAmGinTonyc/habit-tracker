@@ -96,7 +96,7 @@ HANDOFF.md          — этот файл
 - `GAMES` + `GAME_ORDER = ['memory','count','words','sudoku']`; `UNLOCK_LEVELS=[3,7,10]`;
   `maxUnlockable()`, `lockedGames()`, `checkGameUnlock()`, `openGameUnlockModal()`.
 - `PET_STAGES` (4), `PET_MOODS` (4), `petState()`, `setPetFigure()`.
-- `DAY_TOUR` (7 шагов онбординга), `VIEW_HINTS` (month/morning/evening).
+- `DAY_TOUR` (8 шагов онбординга), `VIEW_HINTS` (month/morning/evening).
 - `MEALS` (3: breakfast/lunch/dinner), `weekDates()` (Пн–Вс тек. недели), `timeToPct` (ось 5–24ч), `escAttr` — вкладка Питание.
 - Хелперы: `fdt`, `todayKey`, `newUid`, `isDone`, `setHistory`, `currentStreak`,
   `getLevelStats`, `awardXP`, `streakChip`/`FLAME` (моно-SVG огонёк), `DOTS`/`LOCK` (SVG).
@@ -165,8 +165,11 @@ HANDOFF.md          — этот файл
 - **Коачмарк-тур** по «Дню» (новому юзеру после интро, и по кнопке «?»): `startTour(DAY_TOUR)`,
   `showCoachStep(i)`, `positionCoach(el,step,i)`. Затемнение = `#coach-hole` с
   `box-shadow:0 0 0 9999px`. Для шага без цели (приветствие) дырка 0×0 в центре (иначе нет
-  затемнения). 7 шагов: приветствие, чекбокс, «⋯», список/добавление, колесо (с автоскроллом),
-  psycho-тумблер, таб-бар. Кнопки «Пропустить»/«Далее»(/«Готово»). Оверлей блокирует клики.
+  затемнения). 8 шагов: приветствие, **кнопка профиля (друзья/ID)**, чекбокс, «⋯», список/добавление,
+  колесо (с автоскроллом), psycho-тумблер, таб-бар. Кнопки «Пропустить»/«Далее»(/«Готово»). Оверлей
+  блокирует клики. Шаг про профиль НЕ упоминает вход/регистрацию — к этому моменту юзер уже
+  залогинен (вход обязателен сразу после тапа по заставке, см. §13), формулировка была поправлена
+  юзером именно по этой причине.
 - **Контекстные подсказки** при первом заходе в Месяц/Утро/Вечер: `maybeShowViewHint(view)`,
   баннер `#onb-hint` + «Понятно», тексты в `VIEW_HINTS`. Помечается `seenHints[view]`.
 - **«?»** (`#help-btn`) — повтор тура (выключает psycho, идёт на «День», +200ms старт).
