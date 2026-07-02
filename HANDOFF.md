@@ -114,6 +114,19 @@ HANDOFF.md          — этот файл
 `switchView(view)` — синхронно ставит `.active` (без setTimeout — иначе гонка двух активных
 видов), вызывает рендер вида + `maybeShowViewHint(view)`.
 
+**Нижний кластер зафиксирован (мобильная адаптация):** `#psycho-toggle` + `.view-switcher` +
+`.dash-footer` (XP-бар) обёрнуты в `#dash-bottom-bar` — `position:fixed; bottom:0` (habbittracker.css).
+`.dash-content` резервирует место под него через `padding-bottom: var(--bottom-bar-h)`; высоту
+меряет `measureBottomBar()` (habbittracker.js, вызывается на старте + resize + два отложенных
+ремера 300/1200мс на случай позднего reflow от шрифтов). Не хардкодь `padding-bottom` — высота
+зависит от переноса текста на узких экранах.
+**Свайп между вкладками:** `initSwipeNav()` на `.dash-content` — touchstart/move/end, порог 60px,
+жест засчитывается только если горизонтальная составляющая явно больше вертикальной (не мешает
+скроллу). Порядок вкладок берётся из ВИДИМЫХ `.view-btn` (питомец `display:none` — исключается
+автоматически). Свайп НЕ зацикливается на первой/последней вкладке. `.dash-content` имеет
+`touch-action: pan-y` — разрешает браузеру нативно обрабатывать только вертикальный скролл,
+горизонтальный жест целиком на нашем JS (`preventDefault()` только когда жест распознан горизонтальным).
+
 - **День** (`view-habits` → `#day-normal`): `renderDayView()`/`renderDashboardHabits()`.
   Строка = чекбокс + текст + (серия, моно-огонёк) + «⋯». `toggleHabit()` — XP без фарма
   (флаг `habit.xpDate` = дата начисления), пишет в `history`, обновляет колесо. Добавление

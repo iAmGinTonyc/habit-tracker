@@ -2347,6 +2347,64 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hintClose) hintClose.addEventListener('click', () => { document.getElementById('onb-hint').style.display = 'none'; });
     window.addEventListener('resize', () => { if (document.getElementById('coach-overlay')?.classList.contains('active')) showCoachStep(tourIdx); });
 
+    // === НИЖНИЙ КЛАСТЕР ЗАФИКСИРОВАН (position:fixed) — меряем его реальную высоту и резервируем
+    // столько же места снизу в .dash-content (padding-bottom: var(--bottom-bar-h)), иначе контент
+    // последних строк/вкладок будет прятаться под таб-баром. Мерить нужно повторно: высота зависит
+    // от переноса текста на узких экранах и может измениться после первой отрисовки (шрифты и т.п.).
+    function measureBottomBar() {
+        const bar = document.getElementById('dash-bottom-bar');
+        if (!bar) return;
+        const h = bar.getBoundingClientRect().height;
+        if (h > 0) document.documentElement.style.setProperty('--bottom-bar-h', h + 'px');
+    }
+    measureBottomBar();
+    setTimeout(measureBottomBar, 300);
+    setTimeout(measureBottomBar, 1200);
+    window.addEventListener('resize', measureBottomBar);
+
+    // === СВАЙП МЕЖДУ ВКЛАДКАМИ (мобильная адаптация) ===
+    // Влево — следующая вкладка, вправо — предыдущая. Порядок берём из видимых кнопок таб-бара
+    // (питомец скрыт display:none — автоматически исключается). Свайп не зацикливается на краях.
+    (function initSwipeNav() {
+        const content = document.querySelector('.dash-content');
+        if (!content) return;
+        const SWIPE_THRESHOLD = 60; // px — ниже считаем обычным тапом/скроллом, не свайпом
+        let startX = 0, startY = 0, tracking = false, horizontal = false;
+
+        content.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            tracking = true;
+            horizontal = false;
+        }, { passive: true });
+
+        content.addEventListener('touchmove', (e) => {
+            if (!tracking || e.touches.length !== 1) return;
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            if (!horizontal && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) horizontal = true;
+            if (horizontal) e.preventDefault(); // блокируем вертикальный скролл, только когда жест явно горизонтальный
+        }, { passive: false });
+
+        content.addEventListener('touchend', (e) => {
+            if (!tracking) return;
+            tracking = false;
+            if (!horizontal) return;
+            const dx = e.changedTouches[0].clientX - startX;
+            if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+            const order = Array.from(document.querySelectorAll('.view-btn'))
+                .filter(b => getComputedStyle(b).display !== 'none')
+                .map(b => b.dataset.view);
+            const activeBtn = document.querySelector('.view-btn.active');
+            const idx = activeBtn ? order.indexOf(activeBtn.dataset.view) : -1;
+            if (idx === -1) return;
+            const nextIdx = dx < 0 ? idx + 1 : idx - 1;
+            if (nextIdx < 0 || nextIdx >= order.length) return;
+            switchView(order[nextIdx]);
+        }, { passive: true });
+    })();
+
     // === ЗАПУСК ===
     init();
 });
