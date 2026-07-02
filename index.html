@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
+    <link rel="icon" type="image/png" href="favicon.png">
     <link rel="stylesheet" href="habbittracker.css">
 </head>
 <body>
@@ -80,7 +81,7 @@
                         <div class="checkin-form" id="morning-form" data-type="morning">
                             <div class="checkin-group"><label>Во сколько уснул?</label><input type="time" class="checkin-time" data-key="sleepTime"></div>
                             <div class="checkin-group"><label>Во сколько проснулся?</label><input type="time" class="checkin-time" data-key="wakeTime"></div>
-                            <div class="checkin-group"><label>Уровень энергии утром</label><div class="scale-container" data-key="energy"></div></div>
+                            <div class="checkin-group"><label>Качество сна</label><div class="scale-container" data-key="sleepQuality"></div></div>
                             <div class="checkin-group"><label>Настроение</label><div class="scale-container" data-key="mood"></div></div>
                             <div class="checkin-group"><label>Главный фокус на сегодня</label><input type="text" class="checkin-text" data-key="focus" placeholder="Например, закрыть сложный проект"></div>
                             
@@ -229,6 +230,12 @@
             <div id="auth-profile" style="display:none">
                 <h3 class="auth-title">Профиль</h3>
                 <div class="auth-row"><span class="auth-k">Email</span><span class="auth-v" id="prof-email"></span></div>
+                <div class="prof-name-label">Имя — видят друзья в семье</div>
+                <div class="prof-name-row">
+                    <input type="text" id="prof-name-input" class="auth-input" placeholder="Твоё имя" maxlength="30" style="margin-bottom:0">
+                    <button class="prof-name-save" id="prof-name-save" type="button">Сохранить</button>
+                </div>
+                <div class="prof-name-msg" id="prof-name-msg"></div>
                 <div class="auth-row"><span class="auth-k">Твой ID для приглашений</span><span class="auth-v auth-id" id="prof-id">—</span></div>
                 <button class="auth-copy" id="prof-copy" type="button">Скопировать ID</button>
                 <div class="fam-section">

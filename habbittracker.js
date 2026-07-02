@@ -2180,16 +2180,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const history = dashState.checkinHistory || {};
             
             // Порядок строго как в HTML-форме
-            const metrics = type === 'morning' 
-                ? ['sleepQuality', 'energy', 'mood'] 
+            const metrics = type === 'morning'
+                ? ['sleepQuality', 'mood']
                 : ['dayRate', 'energy', 'satisfaction', 'calm', 'habitQuality'];
-                
+
             // Названия точно как в вопросах
             const metricNames = {
                 morning: {
                     sleepQuality: 'Качество сна',
-                    energy: 'Уровень энергии утром',
-                    mood: 'Настрой / Мотивация'
+                    mood: 'Настроение'
                 },
                 evening: {
                     dayRate: 'Общая оценка дня',

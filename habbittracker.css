@@ -758,6 +758,12 @@ canvas { width: 100%; height: 150px; }
    .auth-id { font-weight: 700; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
    .auth-copy { width: 100%; height: 38px; border: 1px solid #e0e0e0; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 16px; }
    .auth-copy:hover { border-color: #111; }
+   .prof-name-label { font-size: 12px; color: #999; margin: 14px 0 6px; }
+   .prof-name-row { display: flex; gap: 8px; }
+   .prof-name-row .auth-input { flex: 1; }
+   .prof-name-save { flex: 0 0 auto; height: 40px; padding: 0 14px; border: none; background: #111; color: #fff; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; }
+   .prof-name-save:disabled { opacity: 0.5; cursor: default; }
+   .prof-name-msg { font-size: 12px; color: #888; min-height: 15px; margin: 6px 0 2px; }
    .auth-logout { width: 100%; height: 38px; border: none; background: none; color: #999; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 6px; }
    .auth-logout:hover { color: #111; text-decoration: underline; }
    /* Семья */
