@@ -7,6 +7,7 @@ const FEATURES = {
     games: false,
     xpLevels: false,
     legacyCheckinFields: false, // старые поля утро/вечер сверх «качество сна + настроение», и вкладка «Вечер»
+    swipeNav: false, // свайп пальцем между вкладками — отключено по просьбе (некрасиво смотрелось на десктопе/Telegram Desktop)
 };
 
 // === TELEGRAM MINI APP: определение контекста ===
@@ -2470,6 +2471,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Влево — следующая вкладка, вправо — предыдущая. Порядок берём из видимых кнопок таб-бара
     // (питомец скрыт display:none — автоматически исключается). Свайп не зацикливается на краях.
     (function initSwipeNav() {
+        if (!FEATURES.swipeNav) return;
         const content = document.querySelector('.dash-content');
         if (!content) return;
         const SWIPE_THRESHOLD = 60; // px — ниже считаем обычным тапом/скроллом, не свайпом

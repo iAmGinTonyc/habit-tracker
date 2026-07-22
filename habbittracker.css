@@ -147,10 +147,12 @@
        padding: 0 20px calc(10px + env(safe-area-inset-bottom, 0px));
    }
 
-   /* КНОПКИ ПЕРЕКЛЮЧЕНИЯ (2×2) */
+   /* КНОПКИ ПЕРЕКЛЮЧЕНИЯ. flex+justify-content:center вместо grid(6 колонок) — раньше сетка
+      была жёстко на 6 колонок и с текущими 4 видимыми (Игры/Вечер спрятаны, см. FEATURES) кнопки
+      занимали первые 4 колонки слева, а не центр. Flex центрирует ЛЮБОЕ число видимых кнопок. */
    .view-switcher {
-       display: grid;
-       grid-template-columns: repeat(6, 1fr); /* 6 видимых: День/Месяц/Игры/Утро/Вечер/Питание (питомец скрыт) */
+       display: flex;
+       justify-content: center;
        gap: 6px;
        width: 100%;
        max-width: 600px;
@@ -160,6 +162,8 @@
    /* Питомец временно скрыт по просьбе — убери это правило, чтобы вернуть вкладку */
    .view-btn[data-view="pet"] { display: none; }
    .view-btn {
+       flex: 1 1 0;
+       max-width: 130px;
        padding: 8px 4px;
        font-size: 11px;
        font-weight: 500;
