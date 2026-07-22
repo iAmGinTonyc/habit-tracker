@@ -1,5 +1,21 @@
 window.selectedIdentity = null;
 
+// === FEATURE FLAGS (упрощение продукта — прячем UI/логику, НЕ удаляем код и данные.
+// Откат = поменять значение на true. См. HANDOFF.md §15) ===
+const FEATURES = {
+    psychoMode: false,
+    games: false,
+    xpLevels: false,
+    legacyCheckinFields: false, // старые поля утро/вечер сверх «качество сна + настроение», и вкладка «Вечер»
+};
+
+// === TELEGRAM MINI APP: определение контекста ===
+// telegram-web-app.js (см. index.html) всегда создаёт window.Telegram.WebApp, но вне Telegram
+// initData у него пустой — так и отличаем «открыто в Telegram» от обычного браузера.
+function isTelegramContext() {
+    return !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // === ЭЛЕМЕНТЫ ===
     const introScreen = document.getElementById('intro-screen');
@@ -7,6 +23,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashboardScreen = document.getElementById('dashboard-screen');
     const resetBtn = document.getElementById('reset-btn');
     const loadingOverlay = document.getElementById('loading-overlay');
+
+    // Применяем фиче-флаги: скрываем UI отключённых фич через style.display, код/данные не трогаем
+    if (!FEATURES.psychoMode) {
+        const el = document.getElementById('psycho-toggle');
+        if (el) el.style.display = 'none';
+    }
+    if (!FEATURES.games) {
+        const el = document.querySelector('.view-btn[data-view="training"]');
+        if (el) el.style.display = 'none';
+    }
+    if (!FEATURES.xpLevels) {
+        document.querySelectorAll('.dash-level, .dash-footer').forEach(el => el.style.display = 'none');
+    }
+    if (!FEATURES.legacyCheckinFields) {
+        document.querySelectorAll('.legacy-field').forEach(el => el.style.display = 'none');
+        const eveningBtn = document.querySelector('.view-btn[data-view="evening"]');
+        if (eveningBtn) eveningBtn.style.display = 'none';
+    }
+
+    // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
+    if (isTelegramContext()) {
+        try { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } catch (e) {}
+    }
 
     const phrases = [
         "Повторение — это не рутина. Это ритм, в котором рождается мастерство.",
@@ -148,7 +187,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === ПРИВЫЧКИ ПО УМОЛЧАНИЮ ===
-    const DEFAULT_HABITS = ['Подъём до 6 утра', 'Книга', 'Тренировка'];
+    // По одной на каждую сферу колеса жизни (LIFE_AREAS ниже) — авто-привязка при создании,
+    // юзер может переназначить сферу вручную в любой момент через «⋯». См. HANDOFF.md §15.
+    const DEFAULT_HABITS = [
+        { text: 'Главная задача дня',          area: 'career' },
+        { text: 'Убраться 15 минут',           area: 'home' },
+        { text: 'Тренировка',                  area: 'energy' },
+        { text: 'Записать траты дня',          area: 'finance' },
+        { text: 'Написать/позвонить близкому', area: 'social' },
+        { text: 'Читать 20 минут',             area: 'growth' },
+        { text: 'Дневник благодарности',       area: 'emotion' }
+    ];
     const MAX_HABITS = 10;
 
     // === КОЛЕСО ЖИЗНИ: СФЕРЫ ===
@@ -184,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
             level: 1,
             currentXP: 0,
-            habits: DEFAULT_HABITS.map(text => ({ text, completed: false, uid: newUid(), areas: [] })),
+            habits: DEFAULT_HABITS.map(h => ({ text: h.text, completed: false, uid: newUid(), areas: [h.area] })),
             unlockedGames: [], // пусто на старте → выбор первой игры при открытии «Игр»
             lastActiveDate: todayKey(),
             checkins: { morning: {}, evening: {} },
@@ -259,6 +308,31 @@ document.addEventListener('DOMContentLoaded', () => {
             introScreen.style.opacity = '0';
             setTimeout(() => {
                 introScreen.style.display = 'none';
+                // В Telegram Mini App пользователь уже известен Telegram — не просим email/пароль
+                // (тесная форма регистрации внутри WebView Telegram — плохой UX, см. HANDOFF.md §15).
+                if (isTelegramContext()) {
+                    const proceedLocal = () => {
+                        loadingOverlay.classList.remove('active');
+                        dashState = createDefaultState();
+                        window.dashState = dashState;
+                        saveProgress();
+                        showDashboard();
+                    };
+                    // Пытаемся подтвердить identity через Edge Function telegram-auth (auth.js →
+                    // window.telegramSignIn): проверка initData на сервере + настоящая Supabase-сессия,
+                    // трекинг триала на бэке. Если функция ещё не задеплоена/сеть недоступна — тихо
+                    // откатываемся на локальный режим, чтобы юзер не упёрся в сломанный экран, пока
+                    // бэкенд донастраивается (см. HANDOFF.md §15).
+                    if (typeof window.telegramSignIn === 'function') {
+                        window.telegramSignIn(window.Telegram.WebApp.initData)
+                            .then(res => { if (!res || !res.ok) console.warn('telegramSignIn: локальный режим,', res && res.error); })
+                            .catch(() => {})
+                            .then(proceedLocal);
+                    } else {
+                        proceedLocal();
+                    }
+                    return;
+                }
                 // Вход обязателен: показываем форму входа/регистрации и не пускаем в «День»,
                 // пока юзер не авторизуется. Дефолтные привычки создаём только ПОСЛЕ входа.
                 waitForAuthGate(
@@ -355,6 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const maxUnlockable = () => Math.min(1 + UNLOCK_LEVELS.filter(l => dashState.level >= l).length, GAME_ORDER.length);
     const lockedGames = () => GAME_ORDER.filter(g => !dashState.unlockedGames.includes(g));
     function checkGameUnlock() {
+        if (!FEATURES.games) return;
         if (dashState.unlockedGames.length < maxUnlockable() && lockedGames().length) openGameUnlockModal();
     }
     function openGameUnlockModal() {
@@ -1218,19 +1293,19 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('.dash-habit-row .habit-settings-icon'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.' },
         { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit') || document.getElementById('dash-habit-list'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
         { target: () => document.getElementById('life-wheel-day'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
-        { target: () => document.getElementById('psycho-toggle'), text: 'Psycho mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек.' },
-        { target: () => document.querySelector('.view-switcher'), text: 'Месяц — история и графики. Игры — мини-игры за уровни. Утро и Вечер — чек-апы дня, Питание — дневник еды.' }
+        { target: () => document.getElementById('psycho-toggle'), text: 'Psycho mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек.', feature: 'psychoMode' },
+        { target: () => document.querySelector('.view-switcher'), text: 'Месяц — история и графики. Чек-ап — быстро отметь сон и настроение. Питание — дневник еды.' }
     ];
 
     const VIEW_HINTS = {
         month:   'История по дням: тёмная клетка — выполнено. Кликни по любому дню, чтобы отметить задним числом.',
-        morning: 'Утренний чек-ап: во сколько лёг и встал, качество сна, настроение, фокус. Нажми «Сохранить» — данные пойдут в графики «Месяца».',
+        morning: 'Чек-ап дня: качество сна и настроение. Сохраняй раз в день — данные пойдут в графики «Месяца».',
         evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.'
     };
 
     let tourSteps = [], tourIdx = 0;
     function startTour(steps) {
-        tourSteps = steps; tourIdx = 0;
+        tourSteps = steps.filter(s => !s.feature || FEATURES[s.feature]); tourIdx = 0;
         const ov = document.getElementById('coach-overlay');
         if (!ov) return;
         ov.classList.add('active');

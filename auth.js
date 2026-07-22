@@ -33,6 +33,44 @@ function readStoredSession() {
 function openModal() { $('auth-modal').classList.add('active'); }
 function closeModal() { if (mandatory) return; $('auth-modal').classList.remove('active'); } // в mandatory-режиме не закрыть мимо входа
 
+// === TELEGRAM MINI APP: обмен initData на настоящую Supabase-сессию ===
+// Вызывается из habbittracker.js, когда приложение открыто внутри Telegram (см. HANDOFF.md §15).
+// Дёргает Edge Function telegram-auth (supabase/functions/telegram-auth) — она проверяет initData
+// на сервере (HMAC через токен бота, никогда не покидает бэкенд) и создаёт/находит Supabase-юзера
+// по telegram_id, возвращает одноразовый token_hash. Клиент сам завершает вход через verifyOtp —
+// так у Telegram-юзера появляется обычная Supabase-сессия, и уже готовые функции семьи/сводки
+// (Фаза 2-3) работают БЕЗ изменений, как для обычного email-юзера.
+// Объявлена на верхнем уровне модуля (не внутри boot()) — habbittracker.js может вызвать её раньше,
+// чем отработает отложенный boot(); сама функция дожидается готовности sb внутри.
+function waitForSb(triesLeft) {
+  if (triesLeft === undefined) triesLeft = 100;
+  return new Promise((resolve) => {
+    (function check(n) {
+      if (sb) { resolve(true); return; }
+      if (n <= 0) { resolve(false); return; }
+      setTimeout(() => check(n - 1), 100);
+    })(triesLeft);
+  });
+}
+async function telegramSignIn(initData) {
+  const ready = await waitForSb();
+  if (!ready) return { ok: false, error: 'sb_timeout' };
+  try {
+    const { data, error } = await sb.functions.invoke('telegram-auth', { body: { initData } });
+    if (error || !data || data.error) return { ok: false, error: (error && error.message) || (data && data.error) || 'invoke_failed' };
+    // ПРИМЕЧАНИЕ: type здесь должен соответствовать типу, с которым бэкенд вызвал generateLink
+    // ('magiclink'). Если после деплоя verifyOtp падает с ошибкой типа — свериться с актуальной
+    // документацией supabase-js (API этого угла менялась между версиями).
+    const { error: otpErr } = await sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' });
+    if (otpErr) return { ok: false, error: otpErr.message };
+    await refresh(); // подтягивает профиль/семью в UI, как после обычного логина
+    return { ok: true, subscription: data.subscription };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+window.telegramSignIn = telegramSignIn;
+
 // Вызывается из habbittracker.js после тапа по заставке: показывает форму и НЕ пускает дальше,
 // пока юзер не авторизуется (закрыть модалку X/бэкдропом/Esc нельзя, пока mandatory=true).
 function requireAuth(cb) {
