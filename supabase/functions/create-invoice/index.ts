@@ -20,11 +20,11 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 }
 
-// ЦЕНЫ В STARS — ПРИБЛИЗИТЕЛЬНО (курс Stars плавает и отличается на вебе/мобильном IAP, см.
-// HANDOFF.md §15). Перепроверить на core.telegram.org/bots/payments-stars перед реальным запуском
-// и поправить эти две константы при необходимости — больше нигде цену менять не нужно.
-const PRICE_PERSONAL_STARS = 400; // ≈ 500₽/мес
-const PRICE_FAMILY_PER_PERSON_STARS = 280; // ≈ 350₽/чел/мес
+// ЦЕНЫ В STARS — заданы юзером напрямую (не привязаны к рублям). Если меняешь — поправь ТАКЖЕ
+// отображаемые цены в index.html (.sub-price) и auth.js (PRICE_PERSONAL_STARS/
+// PRICE_FAMILY_PER_PERSON_STARS), иначе юзер увидит одну цифру, а спишется другая.
+const PRICE_PERSONAL_STARS = 250;
+const PRICE_FAMILY_PER_PERSON_STARS = 300;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });

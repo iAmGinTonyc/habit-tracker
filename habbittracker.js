@@ -3,12 +3,20 @@ window.selectedIdentity = null;
 // === FEATURE FLAGS (упрощение продукта — прячем UI/логику, НЕ удаляем код и данные.
 // Откат = поменять значение на true. См. HANDOFF.md §15) ===
 const FEATURES = {
-    psychoMode: false,
+    psychoMode: true, // «Pro mode» (бывший psycho mode) — тумблер снова виден всем, но под замком
+    // подписки: клик без активной подписки открывает пейволл (openProModePaywall), а не сам режим.
+    // false тут полностью скрыл бы тумблер целиком, как раньше.
     games: false,
     xpLevels: false,
     legacyCheckinFields: false, // старые поля утро/вечер сверх «качество сна + настроение», и вкладка «Вечер»
     swipeNav: false, // свайп пальцем между вкладками — отключено по просьбе (некрасиво смотрелось на десктопе/Telegram Desktop)
+    dayTab: false, // вкладка «День» — заменена вкладкой «Задачи» (бывший «Месяц»), см. HANDOFF.md §15
 };
+// Пока настоящая проверка подписки не подключена (Stars-оплата ещё не проверена живьём),
+// window.hasActiveSubscription всегда false — Pro mode показывает пейволл при любом клике.
+// auth.js выставит его в true, когда loadSubscription() увидит status:'active' — тогда тумблер
+// заработает как обычный переключатель, без правок здесь.
+window.hasActiveSubscription = window.hasActiveSubscription || false;
 
 // === TELEGRAM MINI APP: определение контекста ===
 // telegram-web-app.js (см. index.html) всегда создаёт window.Telegram.WebApp, но вне Telegram
@@ -41,6 +49,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.legacy-field').forEach(el => el.style.display = 'none');
         const eveningBtn = document.querySelector('.view-btn[data-view="evening"]');
         if (eveningBtn) eveningBtn.style.display = 'none';
+    }
+    if (!FEATURES.dayTab) {
+        const el = document.querySelector('.view-btn[data-view="habits"]');
+        if (el) el.style.display = 'none';
     }
 
     // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
@@ -384,7 +396,15 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (viewName === 'month') { monthCursor = null; renderMonthView(); }
         else if (viewName === 'pet') renderPet();
         else if (viewName === 'food') renderFood();
-        else if (viewName === 'morning' || viewName === 'evening') initCheckins(viewName);
+        else if (viewName === 'morning' || viewName === 'evening') {
+            initCheckins(viewName);
+            // График «настроение и сон» переехал сюда из вкладки «Месяц» (см. HANDOFF.md §15) —
+            // всегда за ТЕКУЩИЙ календарный месяц (тут навигации по месяцам нет, в отличие от «Задач»).
+            if (viewName === 'morning') {
+                const now = new Date();
+                drawMonthMoodSleep(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
+            }
+        }
         updateCheckinButtonPulse();
         maybeShowViewHint(viewName); // контекстная подсказка при первом заходе
     }
@@ -482,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pt = document.getElementById('psycho-toggle');
         if (pt) { pt.classList.toggle('on', !!dashState.psychoMode); pt.setAttribute('aria-pressed', dashState.psychoMode ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
-        switchView('habits');
+        switchView('month'); // «Задачи» (бывший «Месяц») — теперь основная вкладка, см. HANDOFF.md §15
         updateProgressUI();
         startReminderChecker();
         updateCheckinButtonPulse();
@@ -579,6 +599,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Анимированный «счётчик» — плавно докручивает число от текущего к новому + короткий пульс
+    // масштаба (см. .num-pulse в CSS). Используется для сводки месяца при отметке привычки.
+    function animateNumber(el, to, suffix) {
+        suffix = suffix || '';
+        const from = parseInt(el.textContent, 10) || 0;
+        if (from === to) { el.textContent = to + suffix; return; }
+        el.classList.remove('num-pulse'); void el.offsetWidth; el.classList.add('num-pulse');
+        const duration = 420;
+        const start = performance.now();
+        (function tick(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            el.textContent = Math.round(from + (to - from) * eased) + suffix;
+            if (t < 1) requestAnimationFrame(tick);
+        })(start);
+    }
+
     function updateProgressUI() {
         const stats = getLevelStats(dashState.level);
         const percent = Math.min(100, (dashState.currentXP / stats.xpNeeded) * 100);
@@ -635,27 +672,47 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="month-progress"><div class="month-progress-fill" style="width:${st.pct}%"></div></div>
             <div class="month-hint">клик по клетке — отметить день · сегодня выделено рамкой</div>
-            ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет привычек — добавь их во вкладке «Привычки».</p>`}
+            ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет привычек — добавь ниже.</p>`}
+            <div id="month-habit-add"></div>
             <div class="month-wheel-block">
                 <div id="life-wheel-month"></div>
-            </div>
-            <div class="month-chart-block">
-                <div class="month-chart-title">Настроение и качество сна</div>
-                <canvas id="month-ms-chart" width="600" height="150"></canvas>
-                <div class="month-legend"><span class="lg lg-mood">● Настроение</span><span class="lg lg-sleep">● Качество сна</span></div>
             </div>
         `;
         renderLifeWheel('month', 'life-wheel-month', y, m);
 
+        // «+ добавить привычку» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15).
+        // Полный ре-рендер вида проще, чем точечно вставлять ещё одну строку тепловой карты.
+        const addBox = document.getElementById('month-habit-add');
+        if (addBox) {
+            if (dashState.habits.length < MAX_HABITS) {
+                addBox.innerHTML = `<div class="dash-habit-add"><input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}"></div>`;
+                const inp = addBox.querySelector('#new-habit-input');
+                inp.addEventListener('keydown', e => {
+                    if (e.key !== 'Enter') return;
+                    const v = inp.value.trim();
+                    if (!v) return;
+                    dashState.habits.push({ text: v, completed: false, uid: newUid(), areas: [] });
+                    saveProgress();
+                    renderMonthView();
+                });
+            } else {
+                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
+            }
+        }
+
         const hm = document.getElementById('heatmap');
         if (hm) {
-            // Ширина клетки на мобильном (7 колонок видно) считаем через document.documentElement
-            // .clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw надёжно шире реального видимого
-            // вьюпорта (известный баг), из-за чего верстка вылезала за экран. clientWidth свободен
-            // от этой особенности. offset = 44 (паддинг #dashboard-screen, 22px×2) + 80 (колонка названия) + 6 (зазор).
+            // Ширина видимой области на мобильном (7 колонок видно) считаем через
+            // document.documentElement.clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw
+            // надёжно шире реального видимого вьюпорта (известный баг), из-за чего верстка вылезала
+            // за экран. clientWidth свободен от этой особенности. offset = 44 (паддинг
+            // #dashboard-screen, 22px×2) — колонка названия сюда больше не входит: название теперь
+            // СВЕРХУ (своя строка), а не сбоку, поэтому не отнимает горизонтальное место у клеток
+            // (см. HANDOFF.md §15 — раньше было -130, юзер попросил перенести подпись наверх).
             const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
-            const cellW = isMobileHeatmap ? Math.max(28, (document.documentElement.clientWidth - 130) / 7) : null;
-            habits.forEach(h => {
+            const visibleW = isMobileHeatmap ? Math.max(document.documentElement.clientWidth - 44, 196) : null;
+            const cellW = isMobileHeatmap ? Math.max(28, visibleW / 7) : null;
+            habits.forEach((h, hIdx) => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
                 const cells = dayList.map(d => {
@@ -665,12 +722,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const wd = WD_SHORT[new Date(y, m, d).getDay()];
                     return `<div class="hm-cell${done ? ' done' : ''}${k === tKey ? ' today' : ''}${future ? ' future' : ''}" data-uid="${h.uid}" data-key="${k}" title="${d} ${MONTH_NAMES[m]} — ${done ? 'выполнено' : 'нет'}"><span class="hm-wd">${wd}</span></div>`;
                 }).join('');
+                // Пока задача сегодня не отмечена — строка «свёрнута» до чек-листа (название
+                // перекрывает клетки, как раньше выглядела вкладка «День»); отмечаешь — клетки
+                // раскрываются, название перечёркивается и остаётся сверху. См. HANDOFF.md §15.
+                const pendingToday = !h.completed;
                 const rowEl = document.createElement('div');
-                rowEl.className = 'hm-row';
+                rowEl.className = `hm-row${pendingToday ? ' hm-row-pending' : ''}`;
                 rowEl.innerHTML = `
-                    <div class="hm-row-head">
-                        <span class="hm-label" title="${h.text}">${h.text}</span>
-                        <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span></span>
+                    <div class="hm-row-head"${visibleW ? ` style="--head-w:${visibleW}px"` : ''}>
+                        <span class="habit-check hm-check"></span>
+                        <span class="hm-label${h.completed ? ' done' : ''}" title="${h.text}">${h.text}</span>
+                        <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
                     </div>
                     <div class="hm-cells" style="--hm-days:${days}${cellW ? `;--cell-w:${cellW}px` : ''}">${cells}</div>`;
                 hm.appendChild(rowEl);
@@ -701,38 +763,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {
+                const settingsIcon = e.target.closest('.hm-settings');
+                if (settingsIcon) { openHabitSettings(+settingsIcon.dataset.idx); return; }
+                // Пока сегодня не отмечено, клетки скрыты за «шапкой»-чек-листом (см. рендер выше) —
+                // клик по шапке (кроме «⋯») эквивалентен клику по сегодняшней клетке под ней.
+                const pendingHead = e.target.closest('.hm-row-pending .hm-row-head');
+                if (pendingHead) {
+                    const todayCell = pendingHead.closest('.hm-row').querySelector('.hm-cell.today');
+                    if (todayCell) todayCell.click();
+                    return;
+                }
                 const cell = e.target.closest('.hm-cell');
                 if (!cell || cell.classList.contains('future')) return;
                 const uid = cell.dataset.uid, key = cell.dataset.key;
                 const now = !isDone(uid, key);
                 setHistory(uid, key, now);
                 cell.classList.toggle('done', now);
+                const rowEl = cell.closest('.hm-row');
                 // если правим сегодня — синхронизируем с дашбордом И начисляем XP (как toggleHabit:
                 // один раз в день, без фарма, общий habit.xpDate с «Днём»). За прошлые дни XP НЕ даём.
+                // Текст задачи перечёркивается так же, как в бывшей вкладке «День» (см. HANDOFF.md §15).
                 if (key === tKey) {
                     const h = habits.find(x => x.uid === uid);
                     if (h) {
                         h.completed = now;
                         if (now && h.xpDate !== todayKey()) { h.xpDate = todayKey(); awardXP(getLevelStats(dashState.level).xpPerHabit); }
                     }
+                    const label = rowEl.querySelector('.hm-label');
+                    if (label) label.classList.toggle('done', now);
+                    // Отмечена — перечёркиваем, ждём, пока анимация доиграет, и только потом
+                    // раскрываем клетки (снимаем hm-row-pending, CSS сама анимирует reveal).
+                    // Сняли отметку обратно — сворачиваем сразу, без задержки.
+                    if (now) setTimeout(() => rowEl.classList.remove('hm-row-pending'), 450);
+                    else rowEl.classList.add('hm-row-pending');
                 }
                 saveProgress();
-                // точечно обновляем мету строки и сводку месяца
-                const rowEl = cell.closest('.hm-row');
+                // точечно обновляем мету строки, сводку месяца (с анимацией) и колесо жизни —
+                // раньше колесо не трогалось тут вообще и ждало полного renderMonthView (перезагрузку
+                // страницы/повторный заход на вкладку), юзер попросил обновлять сразу.
                 const md = dayList.filter(d => isDone(uid, fdt(y, m, d))).length;
                 const s = currentStreak(uid);
-                rowEl.querySelector('.hm-meta').innerHTML = `${s > 0 ? `<span class="hm-streak">${FLAME}${s}</span>` : ''}<span class="hm-count">${md}/${days}</span>`;
+                const hIdx = habits.findIndex(x => x.uid === uid);
+                // ВАЖНО: .hm-settings — тоже внутри .hm-meta, её нужно перерисовать вместе со
+                // стриком/счётчиком, иначе точечное обновление стирает иконку настроек этой строки
+                // (была найдена в браузере при проверке — querySelector('.hm-settings') находил
+                // соседнюю строку вместо этой после первого клика по клетке).
+                rowEl.querySelector('.hm-meta').innerHTML = `${s > 0 ? `<span class="hm-streak">${FLAME}${s}</span>` : ''}<span class="hm-count">${md}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span>`;
                 const s2 = monthStats();
                 const stats = root.querySelectorAll('.month-stat span');
-                stats[0].textContent = s2.done; stats[1].textContent = s2.possible; stats[2].textContent = `${s2.pct}%`;
+                animateNumber(stats[0], s2.done);
+                animateNumber(stats[1], s2.possible);
+                animateNumber(stats[2], s2.pct, '%');
                 root.querySelector('.month-progress-fill').style.width = `${s2.pct}%`;
+                renderLifeWheel('month', 'life-wheel-month', y, m);
             };
         }
 
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
-
-        drawMonthMoodSleep(y, m, days);
     }
 
     // Сводка метрик за календарный месяц (psycho mode)
@@ -890,8 +978,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = document.getElementById('psycho-toggle');
         if (t) { t.classList.toggle('on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
-        renderDayView();
-        switchView('habits');
+        // «День» скрыт (см. HANDOFF.md §15) — Pro mode теперь показывает месячную сводку метрик
+        // (renderPsychoMonth, уже встроена в renderMonthView) во вкладке «Задачи».
+        switchView('month');
     }
 
     function renderDayView() {
@@ -1055,7 +1144,6 @@ document.addEventListener('DOMContentLoaded', () => {
         { id: 'lunch',     name: 'Обед' },
         { id: 'dinner',    name: 'Ужин' }
     ];
-    const FOOD_START = 5 * 60, FOOD_END = 24 * 60; // ось времени недельного графика: 5:00 .. 24:00
     const escAttr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
 
     // даты текущей недели (Пн–Вс), содержащей сегодня
@@ -1070,13 +1158,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return { key, wd: WD_SHORT[d.getDay()], dayNum: d.getDate(), isToday: key === tKey };
         });
     }
-    // 'HH:MM' → процент позиции на оси времени (или null, если времени нет)
-    function timeToPct(t) {
-        const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
-        if (!m) return null;
-        const mins = (+m[1]) * 60 + (+m[2]);
-        return Math.max(0, Math.min(100, (mins - FOOD_START) / (FOOD_END - FOOD_START) * 100));
-    }
 
     function renderFood() {
         const root = document.getElementById('view-food');
@@ -1084,24 +1165,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dashState.foodLog) dashState.foodLog = {};
         const tKey = todayKey();
         const today = dashState.foodLog[tKey] || {};
-        const rows = MEALS.map(meal => {
+        // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма,
+        // в теле ячейки — что съел.
+        const cells = MEALS.map(meal => {
             const rec = today[meal.id] || {};
-            return `<div class="food-row" data-meal="${meal.id}">
-                <span class="food-meal-name">${meal.name}</span>
-                <input type="time" class="food-time" data-field="time" value="${escAttr(rec.time)}">
+            return `<div class="food-cell" data-meal="${meal.id}">
+                <div class="food-cell-head">
+                    <span class="food-meal-name">${meal.name}</span>
+                    <input type="time" class="food-time" data-field="time" value="${escAttr(rec.time)}">
+                </div>
                 <input type="text" class="food-text" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
             </div>`;
         }).join('');
         root.innerHTML = `
             <h3 class="dash-subtitle">Питание сегодня</h3>
-            <div class="food-form">${rows}</div>
+            <div class="food-form">${cells}</div>
             <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
             <div class="food-week" id="food-week"></div>`;
 
-        // автосохранение по вводу (перерисовываем только недельный график, инпуты не трогаем)
-        root.querySelectorAll('.food-row').forEach(rowEl => {
-            const mealId = rowEl.dataset.meal;
-            rowEl.querySelectorAll('input').forEach(inp => {
+        // автосохранение по вводу (перерисовываем только недельный список, инпуты не трогаем)
+        root.querySelectorAll('.food-cell').forEach(cellEl => {
+            const mealId = cellEl.dataset.meal;
+            cellEl.querySelectorAll('input').forEach(inp => {
                 inp.addEventListener('input', () => {
                     if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
                     if (!dashState.foodLog[tKey][mealId]) dashState.foodLog[tKey][mealId] = {};
@@ -1121,27 +1206,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const wk = document.getElementById('food-week');
         if (!wk) return;
         const days = weekDates();
-        const axisRow = `<div class="fw-row fw-axis-row"><span class="fw-day"></span><div class="fw-body"><div class="fw-axis"><span style="left:0%">5:00</span><span style="left:36.8%">12:00</span><span style="left:68.4%">18:00</span><span style="left:100%">24:00</span></div></div></div>`;
+        // Просто список приёмов пищи по дням (время · что ел) — без часовой оси/графика.
         const rows = days.map(day => {
             const rec = (dashState.foodLog || {})[day.key] || {};
             const meals = MEALS.map(m => ({ name: m.name, time: (rec[m.id] || {}).time, text: (rec[m.id] || {}).text }))
                                .filter(m => m.time || m.text);
-            const dots = meals.map(m => {
-                const pct = timeToPct(m.time);
-                if (pct === null) return '';
-                return `<i class="fw-dot" style="left:${pct}%" title="${escAttr(m.name + ': ' + (m.time || '') + ' ' + (m.text || ''))}"></i>`;
-            }).join('');
             const chips = meals.slice().sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
                 .map(m => `<span class="fw-chip">${m.time ? `<b>${m.time}</b> ` : ''}${m.text || m.name}</span>`).join('');
             return `<div class="fw-row${day.isToday ? ' today' : ''}">
                 <span class="fw-day">${day.wd}<small>${day.dayNum}</small></span>
-                <div class="fw-body">
-                    <div class="fw-track">${dots}</div>
-                    <div class="fw-meals">${chips || '<span class="fw-empty">нет записей</span>'}</div>
-                </div>
+                <div class="fw-meals">${chips || '<span class="fw-empty">нет записей</span>'}</div>
             </div>`;
         }).join('');
-        wk.innerHTML = axisRow + rows;
+        wk.innerHTML = rows;
     }
 
     // === КАСТОМНЫЙ КАЛЕНДАРЬ (попап выбора даты, ч/б; заменяет нативный date-picker) ===
@@ -1298,12 +1375,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const DAY_TOUR = [
         { text: 'Привет! Это трекер привычек и твоего состояния. Покажу за 20 секунд, что где.' },
         { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID для приглашений. Добавляй друзей и смотри их успехи.' },
-        { target: () => document.querySelector('.dash-habit-row .habit-check'), text: 'Нажимай по квадрату, чтобы отметить привычку за день. За регулярность копится серия.' },
-        { target: () => document.querySelector('.dash-habit-row .habit-settings-icon'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.' },
-        { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit') || document.getElementById('dash-habit-list'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
-        { target: () => document.getElementById('life-wheel-day'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
-        { target: () => document.getElementById('psycho-toggle'), text: 'Psycho mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек.', feature: 'psychoMode' },
-        { target: () => document.querySelector('.view-switcher'), text: 'Месяц — история и графики. Чек-ап — быстро отметь сон и настроение. Питание — дневник еды.' }
+        { target: () => document.querySelector('.hm-cell.today'), text: 'Нажимай по сегодняшней клетке, чтобы отметить привычку за день. За регулярность копится серия.' },
+        { target: () => document.querySelector('.hm-settings'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.' },
+        { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
+        { target: () => document.getElementById('life-wheel-month'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
+        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно по подписке.', feature: 'psychoMode' },
+        { target: () => document.querySelector('.view-switcher'), text: 'Задачи — твой список и история по дням. Чек-ап — быстро отметь сон и настроение. Питание — дневник еды.' }
     ];
 
     const VIEW_HINTS = {
@@ -1455,6 +1532,39 @@ document.addEventListener('DOMContentLoaded', () => {
         saveProgress(); renderDashboardHabits();
     }
 
+    // Горизонтальный скролл выбора времени (шаг 30 минут, 00:00-23:30) — используется вместо
+    // нативного <input type="time"> для «во сколько лёг/встал» в чек-апе (см. HANDOFF.md §15).
+    // onSelect опущен → рендерится в «залоченном» виде (кнопки disabled, для истории/после сохранения).
+    function renderTimeScroll(container, currentVal, onSelect) {
+        container.innerHTML = '';
+        container.className = 'time-scroll-container';
+        let activeBtn = null;
+        for (let h = 0; h < 24; h++) {
+            for (const mm of [0, 30]) {
+                const label = `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const isActive = label === currentVal;
+                btn.className = `time-slot-btn${isActive ? ' active' : ''}`;
+                btn.textContent = label;
+                if (isActive) activeBtn = btn;
+                if (onSelect) {
+                    btn.addEventListener('click', () => {
+                        container.querySelectorAll('.time-slot-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        onSelect(label);
+                    });
+                } else {
+                    btn.disabled = true;
+                }
+                container.appendChild(btn);
+            }
+        }
+        requestAnimationFrame(() => {
+            (activeBtn || container.children[16]).scrollIntoView({ inline: 'center', block: 'nearest' });
+        });
+    }
+
     // === ЧЕКАПЫ ===
     function initCheckins(type) {
         console.log('🔍 initCheckins вызван для:', type);
@@ -1505,7 +1615,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     container.appendChild(btn);
                 }
             });
-            
+
+            // Инициализация горизонтальных пикеров времени (лёг/встал)
+            form.querySelectorAll('.time-scroll-container').forEach((container) => {
+                const key = container.dataset.key;
+                if (!key) return;
+                const checkinsData = dashState.checkins[prefix] || {};
+                renderTimeScroll(container, checkinsData[key] || '', (label) => {
+                    if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
+                    dashState.checkins[prefix][key] = label;
+                    saveProgress();
+                    updateCheckinButtonPulse();
+                    checkSaveButtonState(prefix);
+                });
+            });
+
             // Инициализация полей ввода
             const inputs = form.querySelectorAll('.checkin-time, .checkin-text');
             inputs.forEach(input => {
@@ -2072,14 +2196,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.appendChild(btn);
             }
         });
-        
+        form.querySelectorAll('.time-scroll-container').forEach(container => {
+            renderTimeScroll(container, savedData[container.dataset.key] || ''); // без onSelect — заблокировано
+        });
+
         form.querySelectorAll('input').forEach(input => {
             const key = input.dataset.key;
             if (key) input.value = savedData[key] || '';
             input.disabled = true;
             input.readOnly = true;
         });
-        
+
         // Скрываем кнопку сохранения
         const saveBtn = document.getElementById(`save-${type}-btn`);
         if (saveBtn) saveBtn.style.display = 'none';
@@ -2155,7 +2282,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     container.appendChild(btn);
                 }
             });
-            
+
+            // Пикеры времени
+            form.querySelectorAll('.time-scroll-container').forEach(container => {
+                const key = container.dataset.key;
+                renderTimeScroll(container, dashState.checkins[type]?.[key] || '', (label) => {
+                    dashState.checkins[type][key] = label;
+                    saveProgress();
+                });
+            });
+
             // Инпуты
             form.querySelectorAll('input').forEach(input => {
                 const key = input.dataset.key;
@@ -2203,7 +2339,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.appendChild(btn);
             }
         });
-    
+        form.querySelectorAll('.time-scroll-container').forEach(container => {
+            renderTimeScroll(container, data[container.dataset.key] || '');
+        });
+
         // Блокируем инпуты
         form.querySelectorAll('input').forEach(input => {
             const key = input.dataset.key;
@@ -2440,9 +2579,30 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
 
-    // === ТУМБЛЕР PSYCHO MODE ===
+    // === ТУМБЛЕР PRO MODE (бывший psycho mode) — под замком подписки, см. HANDOFF.md §15 ===
+    const promodeLockIcon = document.getElementById('promode-lock-icon');
+    if (promodeLockIcon) promodeLockIcon.innerHTML = LOCK;
     const psychoToggleEl = document.getElementById('psycho-toggle');
-    if (psychoToggleEl) psychoToggleEl.addEventListener('click', () => setPsychoMode(!dashState.psychoMode));
+    if (psychoToggleEl) psychoToggleEl.addEventListener('click', () => {
+        if (window.hasActiveSubscription) { setPsychoMode(!dashState.psychoMode); return; }
+        openProModePaywall();
+    });
+    function openProModePaywall() {
+        const m = document.getElementById('promode-paywall-modal');
+        if (m) m.classList.add('active');
+    }
+    function closeProModePaywall() {
+        const m = document.getElementById('promode-paywall-modal');
+        if (m) m.classList.remove('active');
+    }
+    const promodeCloseBtn = document.getElementById('promode-close');
+    if (promodeCloseBtn) promodeCloseBtn.addEventListener('click', closeProModePaywall);
+    const promodeModalEl = document.getElementById('promode-paywall-modal');
+    if (promodeModalEl) promodeModalEl.addEventListener('click', (e) => { if (e.target === promodeModalEl) closeProModePaywall(); });
+    const promodeBuyBtn = document.getElementById('promode-buy-btn');
+    if (promodeBuyBtn) promodeBuyBtn.addEventListener('click', () => {
+        if (typeof window.buyPersonalPlanOneClick === 'function') window.buyPersonalPlanOneClick('promode-msg', 'promode-buy-btn');
+    });
 
     // === ПИТОМЕЦ: «бегающий» роумер (десктоп) ===
     const petRoamerEl = document.getElementById('pet-roamer');
@@ -2455,7 +2615,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (coachNext) coachNext.addEventListener('click', () => showCoachStep(tourIdx + 1));
     if (coachSkip) coachSkip.addEventListener('click', () => endTour());
     const helpBtn = document.getElementById('help-btn');
-    if (helpBtn) helpBtn.addEventListener('click', () => { if (dashState.psychoMode) setPsychoMode(false); switchView('habits'); setTimeout(() => startTour(DAY_TOUR), 200); });
+    if (helpBtn) helpBtn.addEventListener('click', () => { if (dashState.psychoMode) setPsychoMode(false); switchView('month'); setTimeout(() => startTour(DAY_TOUR), 200); });
     const hintClose = document.getElementById('onb-hint-close');
     if (hintClose) hintClose.addEventListener('click', () => { document.getElementById('onb-hint').style.display = 'none'; });
     window.addEventListener('resize', () => { if (document.getElementById('coach-overlay')?.classList.contains('active')) showCoachStep(tourIdx); });

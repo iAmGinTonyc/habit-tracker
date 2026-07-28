@@ -190,18 +190,21 @@ async function syncMyStats() {
 }
 
 // === ПОДПИСКА (Stars) ===
-// Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма считается на бэке
-// (create-invoice), эти константы держим в синхроне вручную (см. HANDOFF.md §15).
-const PRICE_PERSONAL_RUB = 500;
-const PRICE_FAMILY_PER_PERSON_RUB = 350;
+// Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма списывается на бэке
+// (create-invoice/index.ts) — если меняешь цену, поправь ОБА места (см. HANDOFF.md §15).
+const PRICE_PERSONAL_STARS = 250;
+const PRICE_FAMILY_PER_PERSON_STARS = 300;
 let selectedPlan = null;
 
 async function loadSubscription() {
   if (!me) return;
   const r = await withTimeout(sb.from('subscriptions').select('*').eq('user_id', me).maybeSingle(), 4000);
-  if (r === TIMED_OUT || !r.data) { $('sub-status').textContent = '—'; return; }
+  if (r === TIMED_OUT || !r.data) { $('sub-status').textContent = '—'; window.hasActiveSubscription = false; return; }
   const s = r.data;
   const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '';
+  // Pro mode (habbittracker.js) читает этот флаг напрямую — активная подписка (любой план)
+  // снимает пейволл с тумблера. Не трогает free-триал: он про сам трекер, не про Pro mode.
+  window.hasActiveSubscription = s.status === 'active';
   if (s.status === 'active') {
     $('sub-status').textContent = s.plan === 'family'
       ? `Family (${s.family_size} чел.) до ${fmt(s.expires_at)}`
@@ -217,8 +220,8 @@ async function loadSubscription() {
 
 function updateFamilyPriceLabel() {
   const size = Math.max(2, Math.min(10, Number($('sub-family-size').value) || 2));
-  const total = size * PRICE_FAMILY_PER_PERSON_RUB;
-  $('sub-plan-family').querySelector('.sub-price').textContent = `${size}×${PRICE_FAMILY_PER_PERSON_RUB}₽ = ${total}₽/мес`;
+  const total = size * PRICE_FAMILY_PER_PERSON_STARS;
+  $('sub-plan-family').querySelector('.sub-price').textContent = `${size}×${PRICE_FAMILY_PER_PERSON_STARS} = ${total} Stars/мес`;
 }
 
 function selectPlan(plan) {
@@ -231,36 +234,43 @@ function selectPlan(plan) {
   if (plan === 'family') updateFamilyPriceLabel();
 }
 
-async function buySubscription() {
-  if (!selectedPlan) return;
-  const btn = $('sub-buy-btn');
-  const msg = $('sub-msg');
-  btn.disabled = true;
-  msg.textContent = 'Готовим счёт…';
+// Общая покупка — используется и профильной формой (Personal/Family с выбором размера), и
+// одноклиночным пейволлом Pro mode (см. openProModePaywall в habbittracker.js). msgEl/btnEl —
+// опциональные DOM-элементы для статуса/дизейбла, можно вызывать вообще без UI-обвязки.
+async function purchasePlan(plan, familySize, msgEl, btnEl) {
+  if (btnEl) btnEl.disabled = true;
+  if (msgEl) msgEl.textContent = 'Готовим счёт…';
   try {
-    const body = { plan: selectedPlan };
-    if (selectedPlan === 'family') body.familySize = Number($('sub-family-size').value) || 2;
+    const body = { plan };
+    if (plan === 'family') body.familySize = familySize || 2;
     const { data, error } = await sb.functions.invoke('create-invoice', { body });
     if (error || !data || data.error) {
-      msg.textContent = 'Ошибка: ' + ((error && error.message) || (data && data.error) || 'не удалось создать счёт');
+      if (msgEl) msgEl.textContent = 'Ошибка: ' + ((error && error.message) || (data && data.error) || 'не удалось создать счёт');
       return;
     }
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openInvoice) {
       window.Telegram.WebApp.openInvoice(data.link, (status) => {
-        if (status === 'paid') { msg.textContent = 'Оплачено! Обновляем статус…'; setTimeout(loadSubscription, 1500); }
-        else if (status === 'cancelled') msg.textContent = 'Отменено';
-        else if (status === 'failed') msg.textContent = 'Платёж не прошёл';
-        else msg.textContent = '';
+        if (status === 'paid') { if (msgEl) msgEl.textContent = 'Оплачено! Обновляем статус…'; setTimeout(loadSubscription, 1500); }
+        else if (status === 'cancelled') { if (msgEl) msgEl.textContent = 'Отменено'; }
+        else if (status === 'failed') { if (msgEl) msgEl.textContent = 'Платёж не прошёл'; }
+        else if (msgEl) msgEl.textContent = '';
       });
     } else {
       window.open(data.link, '_blank'); // вне Telegram (тестирование) — просто открыть ссылку
     }
   } catch (e) {
-    msg.textContent = 'Сеть недоступна, попробуй ещё раз';
+    if (msgEl) msgEl.textContent = 'Сеть недоступна, попробуй ещё раз';
   } finally {
-    btn.disabled = false;
+    if (btnEl) btnEl.disabled = false;
   }
 }
+async function buySubscription() {
+  if (!selectedPlan) return;
+  const size = selectedPlan === 'family' ? (Number($('sub-family-size').value) || 2) : null;
+  await purchasePlan(selectedPlan, size, $('sub-msg'), $('sub-buy-btn'));
+}
+// Вызывается из пейволла Pro mode (habbittracker.js) — покупка Personal в один клик, без выбора плана.
+window.buyPersonalPlanOneClick = (msgElId, btnElId) => purchasePlan('personal', null, document.getElementById(msgElId), document.getElementById(btnElId));
 
 // === РЕФЕРАЛЬНАЯ ССЫЛКА ЧЕРЕЗ TELEGRAM (заменяет ручной ввод ID для приглашения близкого) ===
 // Ссылка вида t.me/BOT/APP?startapp=CODE — при открытии Telegram передаёт CODE в initData как

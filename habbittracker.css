@@ -225,6 +225,12 @@
 .scale-btn { flex: 1; min-width: 0; height: 34px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: #555; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; user-select: none; font-family: inherit; }
 .scale-btn:hover { border-color: #111; color: #111; }
 .scale-btn.active { background: #111; color: #fff; border-color: #111; }
+/* Горизонтальный скролл выбора времени (шаг 30 мин) — вместо нативного <input type="time"> */
+.time-scroll-container { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px 2px 6px; scroll-snap-type: x proximity; }
+.time-slot-btn { flex: 0 0 auto; scroll-snap-align: center; height: 34px; padding: 0 14px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: #555; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; transition: all 0.15s ease; font-family: inherit; }
+.time-slot-btn:hover { border-color: #111; color: #111; }
+.time-slot-btn.active { background: #111; color: #fff; border-color: #111; }
+.time-slot-btn:disabled { cursor: default; opacity: 0.7; }
 
 /* --- Блок сохранения + редактирование --- */
 .checkin-save-wrapper {
@@ -544,7 +550,10 @@ canvas { width: 100%; height: 150px; }
 
    .month-summary { display: flex; justify-content: center; gap: 30px; margin-bottom: 10px; }
    .month-stat { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #999; letter-spacing: 0.3px; }
-   .month-stat span { font-size: 21px; font-weight: 700; color: #111; line-height: 1.15; }
+   .month-stat span { font-size: 21px; font-weight: 700; color: #111; line-height: 1.15; display: inline-block; font-variant-numeric: tabular-nums; }
+   /* Короткий «пульс» масштаба поверх докручивающихся цифр (animateNumber в habbittracker.js) */
+   .num-pulse { animation: numPulse 0.42s ease-out; }
+   @keyframes numPulse { 0% { transform: scale(1.25); color: #555; } 100% { transform: scale(1); color: #111; } }
 
    .month-progress { height: 4px; background: #f0f0f0; border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
    .month-progress-fill { height: 100%; background: #111; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -554,15 +563,26 @@ canvas { width: 100%; height: 150px; }
    .heatmap { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
    .hm-row { display: flex; flex-direction: column; gap: 5px; }
    .hm-row-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-   .hm-label { font-size: 13px; color: #222; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+   .hm-row-pending .hm-row-head { cursor: pointer; }
+   /* Чек-бокс — виден, только пока задача сегодня не отмечена (см. HANDOFF.md §15) */
+   .hm-check { display: none; margin-right: 2px; }
+   .hm-row-pending .hm-check { display: inline-block; }
+   .hm-label { font-size: 13px; color: #222; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
+   .hm-label.done { color: #bbb; text-decoration: line-through; }
    .hm-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
    .hm-streak { display: inline-flex; align-items: center; gap: 2px; color: #444; }
    .hm-streak .flame { color: #555; }
    .hm-count { color: #bbb; font-weight: 500; }
+   .hm-settings { display: inline-flex; align-items: center; color: #cfcfcf; cursor: pointer; transition: color 0.2s; }
+   .hm-settings:hover { color: #111; }
+   .hm-settings svg { width: 14px; height: 14px; }
    /* --hm-days задаётся инлайн из JS (число дней в месяце). На десктопе — все дни сжаты в ширину
       контейнера (1fr each); на мобильном @media ниже переопределяет фиксированной шириной колонки,
       чтобы карта скроллилась горизонтально вместо сжатия. */
-   .hm-cells { display: grid; gap: 2px; grid-template-columns: repeat(var(--hm-days, 31), 1fr); }
+   .hm-cells { display: grid; gap: 2px; grid-template-columns: repeat(var(--hm-days, 31), 1fr); overflow: hidden; max-height: 200px; opacity: 1; transition: max-height 0.4s ease 0.15s, opacity 0.3s ease 0.15s; }
+   /* Пока задача сегодня не отмечена — клетки скрыты за шапкой (см. .hm-row-head выше). Раскрытие
+      задержано (transition-delay), чтобы сначала доиграла анимация перечёркивания названия. */
+   .hm-row-pending .hm-cells { max-height: 0; opacity: 0; pointer-events: none; transition: max-height 0.3s ease, opacity 0.15s ease; }
    .hm-cell { aspect-ratio: 1; background: #ececec; border-radius: 2px; cursor: pointer; transition: background 0.15s, transform 0.1s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
    .hm-wd { font-size: 7px; line-height: 1; color: #111; pointer-events: none; letter-spacing: -0.5px; }
    .hm-cell.done .hm-wd { color: #111; }
@@ -603,6 +623,16 @@ canvas { width: 100%; height: 150px; }
    .pt-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.2s; }
    #psycho-toggle.on .pt-switch { background: #111; }
    #psycho-toggle.on .pt-switch::after { left: 16px; }
+   .pt-lock { display: inline-flex; color: #aaa; }
+   .pt-lock svg { display: block; }
+   /* Пейволл Pro mode */
+   .promode-preview { border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; filter: blur(2.5px); opacity: 0.6; user-select: none; pointer-events: none; }
+   .promode-preview-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f3f3f3; }
+   .promode-preview-row:last-child { border-bottom: none; }
+   .promode-preview-row span { color: #888; }
+   .promode-preview-row b { color: #111; font-variant-numeric: tabular-nums; }
+   .promode-desc { font-size: 13px; color: #666; line-height: 1.5; margin-top: 14px; }
+   .promode-msg { font-size: 12px; color: #888; text-align: center; min-height: 15px; padding-bottom: 10px; }
 
    /* =========================================
       PSYCHO MODE — МЕТРИКИ
@@ -656,30 +686,23 @@ canvas { width: 100%; height: 150px; }
    .pam-save { background: #111; color: #fff; border: none; border-radius: 7px; font-family: inherit; font-size: 14px; padding: 9px 18px; cursor: pointer; }
 
    /* === ПИТАНИЕ === */
-   .food-form { margin-top: 4px; }
-   .food-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f3f3f3; }
-   .food-meal-name { width: 62px; flex: 0 0 auto; font-size: 15px; color: #111; }
-   .food-time { width: 96px; flex: 0 0 auto; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
-   .food-text { flex: 1; min-width: 0; height: 34px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
+   .food-form { margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
+   /* Три простые ячейки вместо графика с часовой осью (см. HANDOFF.md §15): время сверху,
+      что съел — в теле ячейки. */
+   .food-cell { border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; }
+   .food-cell-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+   .food-meal-name { font-size: 13px; color: #888; }
+   .food-time { width: 96px; flex: 0 0 auto; height: 32px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
+   .food-text { width: 100%; height: 36px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 15px; color: #111; outline: none; box-sizing: border-box; }
    .food-time:focus, .food-text:focus { border-color: #111; }
    .food-text::placeholder { color: #bbb; }
    .food-week-title { margin-top: 24px; }
    .food-week { margin-top: 4px; }
    .fw-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f3f3f3; }
    .fw-row.today { background: #fafafa; }
-   .fw-axis-row { padding: 0 0 2px; border: none; }
    .fw-day { width: 40px; flex: 0 0 auto; font-size: 13px; color: #111; padding-top: 1px; white-space: nowrap; }
    .fw-day small { color: #999; margin-left: 3px; font-size: 11px; }
-   .fw-body { flex: 1; min-width: 0; }
-   .fw-axis { position: relative; height: 12px; }
-   .fw-axis span { position: absolute; transform: translateX(-50%); font-size: 10px; color: #bbb; white-space: nowrap; }
-   .fw-axis span:first-child { transform: translateX(0); }
-   .fw-axis span:last-child { transform: translateX(-100%); }
-   .fw-track { position: relative; height: 13px; margin: 1px 0 5px; }
-   .fw-track::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: #ededed; }
-   .fw-dot { position: absolute; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #111; transform: translateX(-50%); }
-   .fw-row.today .fw-dot { box-shadow: 0 0 0 2px #fafafa; }
-   .fw-meals { display: flex; flex-wrap: wrap; gap: 3px 12px; }
+   .fw-meals { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 12px; }
    .fw-chip { font-size: 12px; color: #555; white-space: nowrap; }
    .fw-chip b { color: #111; font-weight: 600; font-variant-numeric: tabular-nums; }
    .fw-empty { font-size: 12px; color: #ccc; }
@@ -864,21 +887,18 @@ canvas { width: 100%; height: 150px; }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
        /* Тепловая карта на мобильном: горизонтальный скролл вместо сжатия всех дней в экран.
-          Название привычки — «прилипшая» колонка слева, сами дни скроллятся под ней. Ширина
-          клетки (--cell-w) считается в JS через clientWidth так, чтобы влезало ровно 7 колонок.
-          Стартовый scrollLeft (сегодня первой видимой) выставляется в JS. */
+          Название привычки — «прилипшая» строка СВЕРХУ (как в desktop-варианте, а не слева),
+          сами дни скроллятся под ней. Ширина клетки (--cell-w) и ширина шапки (--head-w) считаются
+          в JS через clientWidth так, чтобы влезало ровно 7 колонок. Стартовый scrollLeft (сегодня
+          первой видимой) выставляется в JS. */
        .heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-       .hm-row { flex-direction: row; align-items: center; gap: 6px; }
        /* position:sticky тут ненадёжен (ломается после ~100-200px скролла в связке с calc()-шириной
           колонок и вложенным flex — проверено эмпирически). Прилипание сделано через JS:
-          transform:translateX(scrollLeft), см. syncHeatmapHeads() в habbittracker.js. */
-       .hm-row-head {
-           position: relative; z-index: 2; background: #fff;
-           flex: 0 0 80px; width: 80px;
-           flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
-           padding-right: 2px;
-       }
-       .hm-label { font-size: 12px; max-width: 80px; }
+          transform:translateX(scrollLeft), см. syncHeatmapHeads() в habbittracker.js. Направление
+          строки (flex-direction:column) и раскладка label/count (space-between) наследуются из
+          базового .hm-row/.hm-row-head — на мобильном переопределяем только ширину шапки. */
+       .hm-row-head { position: relative; z-index: 2; background: #fff; width: var(--head-w, 100%); }
+       .hm-label { min-width: 0; } /* даёт ellipsis сработать при нехватке места рядом со счётчиком */
        /* --cell-w считается в JS через clientWidth (НЕ 100vw — на iOS Safari 100vw шире реального
           вьюпорта, ломало верстку). 44px — запасной вариант, если JS почему-то не отработал. */
        .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), var(--cell-w, 44px)); }
