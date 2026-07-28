@@ -22,6 +22,11 @@
    @media (prefers-reduced-motion: reduce) { .intro-title, .intro-lead { opacity: 1; animation: none; } } /* без анимаций текст всё равно виден */
    .hint-text { position: absolute; bottom: 40px; right: 60px; font-size: 14px; color: #999; font-weight: 300; letter-spacing: 0.5px; opacity: 0.7; animation: pulse 3s ease-in-out infinite; }
    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.8; } }
+
+   /* Экран «только в Telegram» — показывается вместо интро при заходе не из Telegram Mini App */
+   #web-only-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: #fff; }
+   .web-only-btn { display: inline-block; margin-top: 22px; padding: 12px 28px; background: #111; color: #fff; text-decoration: none; border-radius: 999px; font-size: 15px; font-weight: 500; transition: opacity 0.2s ease; }
+   .web-only-btn:hover { opacity: 0.85; }
    
    /* =========================================
       ЭКРАН 2: ИДЕНТИЧНОСТЬ

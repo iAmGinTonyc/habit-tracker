@@ -47,7 +47,10 @@ interface TelegramUser {
   username?: string;
 }
 
-async function validateInitData(initData: string, botToken: string): Promise<{ ok: boolean; user?: TelegramUser }> {
+async function validateInitData(
+  initData: string,
+  botToken: string,
+): Promise<{ ok: boolean; user?: TelegramUser; startParam?: string | null }> {
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
   if (!hash) return { ok: false };
@@ -66,7 +69,9 @@ async function validateInitData(initData: string, botToken: string): Promise<{ o
 
   const userJson = params.get('user');
   if (!userJson) return { ok: false };
-  return { ok: true, user: JSON.parse(userJson) };
+  // start_param присутствует, только если Mini App открыт по реферальной ссылке
+  // (t.me/bot/app?startapp=CODE) — используется клиентом для авто-принятия приглашения в семью.
+  return { ok: true, user: JSON.parse(userJson), startParam: params.get('start_param') };
 }
 
 Deno.serve(async (req) => {
@@ -77,7 +82,7 @@ Deno.serve(async (req) => {
     const { initData } = await req.json();
     if (!initData) return json({ error: 'no_init_data' }, 400);
 
-    const { ok, user } = await validateInitData(initData, BOT_TOKEN);
+    const { ok, user, startParam } = await validateInitData(initData, BOT_TOKEN);
     if (!ok || !user?.id) return json({ error: 'invalid_init_data' }, 401);
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -123,6 +128,7 @@ Deno.serve(async (req) => {
       email,
       hashed_token: link.properties?.hashed_token,
       subscription,
+      start_param: startParam || null,
     });
   } catch (e) {
     return json({ error: 'unexpected', detail: String(e) }, 500);

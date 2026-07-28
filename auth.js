@@ -64,6 +64,13 @@ async function telegramSignIn(initData) {
     const { error: otpErr } = await sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' });
     if (otpErr) return { ok: false, error: otpErr.message };
     await refresh(); // подтягивает профиль/семью в UI, как после обычного логина
+    // Открыт по реферальной ссылке (t.me/.../LiveLife?startapp=CODE) — start_param пришёл через
+    // initData, Edge Function его просто передала обратно. send_invite должен идти С КЛИЕНТА
+    // (под только что созданной сессией), не из Edge Function — RPC читает auth.uid() вызывающего,
+    // а у service-role его нет. Тихо игнорируем ошибку (напр. "это свой же ID") — не критично.
+    if (data.start_param) {
+      try { await sb.rpc('send_invite', { target_code: data.start_param }); } catch (e) {}
+    }
     return { ok: true, subscription: data.subscription };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -93,8 +100,21 @@ function setMode(m) {
   $('auth-err').textContent = '';
 }
 
+// Продукт — Telegram-only (решено 22.07.2026): идентичность всегда из Telegram initData, форма
+// email/пароля (auth-form-wrap) больше НИКОГДА не показывается — код оставлен нетронутым
+// (hide, не delete), просто недостижим, т.к. habbittracker.js блокирует не-Telegram визиты
+// экраном-заглушкой раньше, чем эта модалка вообще может открыться.
+function tgUser() {
+  try { return window.Telegram.WebApp.initDataUnsafe.user || null; } catch (e) { return null; }
+}
+function tgDisplayId() {
+  const tu = tgUser();
+  if (tu) return tu.username ? ('@' + tu.username) : (tu.first_name || 'Telegram');
+  return myEmail || '—';
+}
+
 async function refresh() {
-  // Пока не знаем статус входа — показываем нейтральное «Проверяем…», а НЕ форму входа по
+  // Пока не знаем статус входа — показываем нейтральное «Входим…», а НЕ форму входа по
   // умолчанию. Иначе при быстром клике на «Профиль» (модалка открывается раньше, чем refresh()
   // успевает отработать) юзер видит форму входа, которая через секунду подменяется профилем —
   // выглядит как «перелогинь меня» (баг, о котором сообщил юзер).
@@ -111,14 +131,14 @@ async function refresh() {
     session = r.data.session;
   }
   const inUser = session && session.user;
-  $('auth-checking').style.display = 'none';
-  $('auth-form-wrap').style.display = inUser ? 'none' : 'block';
+  $('auth-checking').style.display = inUser ? 'none' : 'block'; // не вошли — держим «Входим…», форму email не показываем вовсе
+  $('auth-form-wrap').style.display = 'none';
   $('auth-profile').style.display = inUser ? 'block' : 'none';
   $('profile-btn').classList.toggle('on', !!inUser);
   me = inUser ? session.user.id : null;
   myEmail = inUser ? (session.user.email || '') : null;
   if (!inUser) return;
-  $('prof-email').textContent = myEmail;
+  $('prof-email').textContent = tgDisplayId();
   $('prof-id').textContent = '…';
   // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
   const pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
@@ -133,7 +153,11 @@ async function refresh() {
   loadFamily();   // входящие приглашения + семья
 }
 
-const defaultName = () => myEmail ? myEmail.split('@')[0] : 'без имени';
+const defaultName = () => {
+  const tu = tgUser();
+  if (tu) return tu.first_name || tu.username || 'без имени';
+  return myEmail ? myEmail.split('@')[0] : 'без имени';
+};
 
 async function saveName() {
   const val = $('prof-name-input').value.trim();
@@ -162,6 +186,24 @@ async function syncMyStats() {
     level: s.level, streak: s.streak, week_pct: s.weekPct, mood: s.mood,
     updated_at: new Date().toISOString()
   });
+}
+
+// === РЕФЕРАЛЬНАЯ ССЫЛКА ЧЕРЕЗ TELEGRAM (заменяет ручной ввод ID для приглашения близкого) ===
+// Ссылка вида t.me/BOT/APP?startapp=CODE — при открытии Telegram передаёт CODE в initData как
+// start_param, дальше telegramSignIn() сам примет приглашение через send_invite (см. выше).
+const BOT_USERNAME = 'livelife_tracker_bot';
+const APP_SHORT_NAME = 'LiveLife';
+function shareInviteLink() {
+  const inviteId = $('prof-id').textContent;
+  if (!inviteId || inviteId === '…' || inviteId.indexOf(' ') !== -1) return; // не готово/ошибка — не шарим мусор
+  const link = `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=${inviteId}`;
+  const text = 'Присоединяйся ко мне в LiveLife — трекере жизни';
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+  } else {
+    window.open(shareUrl, '_blank');
+  }
 }
 
 // === СЕМЬЯ (Фаза 3) ===
@@ -255,6 +297,7 @@ function wire() {
   $('auth-submit').addEventListener('click', submit);
   $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   $('auth-logout').addEventListener('click', async () => { await sb.auth.signOut(); await refresh(); });
+  $('prof-share').addEventListener('click', shareInviteLink);
   $('prof-copy').addEventListener('click', () => {
     const id = $('prof-id').textContent;
     if (navigator.clipboard) navigator.clipboard.writeText(id);

@@ -46,6 +46,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
     if (isTelegramContext()) {
         try { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } catch (e) {}
+    } else {
+        // Продукт только для Telegram (решено 22.07.2026, см. HANDOFF.md §15) — прямой браузерный
+        // визит (не через Mini App) блокируем экраном-заглушкой, остальную инициализацию не запускаем.
+        introScreen.style.display = 'none';
+        dashboardScreen.style.display = 'none';
+        const wo = document.getElementById('web-only-screen');
+        if (wo) wo.style.display = 'flex';
+        return;
     }
 
     const phrases = [
