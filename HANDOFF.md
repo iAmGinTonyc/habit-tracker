@@ -633,4 +633,42 @@ Telegram сам продлевает и списывает Stars — свой cr
 - Проверено в браузере на 430px (ширина панели Telegram Desktop с исходного скриншота) и 375px
   (обычный мобильный) — центрируется в обоих случаях, консоль чистая.
 
+**✅ СДЕЛАНО 22.07.2026 — продукт стал Telegram-only, email-вход убран из UI, реферальные ссылки:**
+Юзер спросил, зачем вообще email-логин внутри Telegram, раз юзер и так привязан к Telegram —
+решили сделать продукт СТРОГО Telegram-only.
+- **Блокирующий экран вне Telegram** — [index.html](index.html:12) новая секция
+  `#web-only-screen` («Мы работаем только внутри Telegram» + кнопка на `t.me/livelife_tracker_bot/LiveLife`).
+  В [habbittracker.js](habbittracker.js:46): `if (!isTelegramContext()) { скрыть intro+dashboard,
+  показать web-only-screen, return; }` — вся остальная инициализация (тур, чек-апы и т.д.) для
+  не-Telegram визита просто не запускается.
+- **Email-форма (`auth-form-wrap`) больше НИКОГДА не показывается** — код не удалён (hide, не
+  delete), но `refresh()` в [auth.js](auth.js:122) всегда держит `display:none` для неё; пока нет
+  сессии — нейтральный статус «Входим через Telegram…» вместо формы логина. Профиль теперь
+  показывает Telegram username/имя (`tgDisplayId()`) вместо email.
+- **Реферальные ссылки вместо ручного ввода ID** — новая кнопка «Поделиться ссылкой-приглашением»
+  (`shareInviteLink()` в auth.js) собирает `t.me/livelife_tracker_bot/LiveLife?startapp=<invite_id>`
+  и открывает нативный шаринг Telegram (`Telegram.WebApp.openTelegramLink` + `t.me/share/url`).
+  Ручной ввод ID (`fam-invite-input`/`sendInvite`) НЕ убран — оставлен как запасной путь.
+  На приёмной стороне: [telegram-auth Edge Function](supabase/functions/telegram-auth/index.ts)
+  теперь парсит `start_param` из initData и возвращает его клиенту; `telegramSignIn()` в auth.js
+  после успешного `verifyOtp` сам вызывает `sb.rpc('send_invite', {target_code: start_param})` —
+  использует уже готовую RPC из Фазы 3, НЕ через Edge Function (там `auth.uid()` пуст под
+  service role — RPC обязан идти с клиентской сессии).
+- Семья отображается ТАМ ЖЕ, где и раньше (`#auth-profile` → `fam-section`) — сама логика
+  `loadFamily`/`renderFamily` не менялась, она уже была identity-agnostic (работает через `me`/
+  `sb`, а не через email напрямую).
+- Проверено: `deno check`/`deno lint` на Edge Function — чисто; `node --check` на обоих JS — чисто;
+  баланс тегов в index.html — чисто; в браузере (фейковый Telegram-контекст) — блокирующий экран
+  вне Telegram работает, «Входим через Telegram…» показывается вместо формы логина,
+  `shareInviteLink()` собирает корректный URL (проверено вызовом кнопки напрямую, `window.open`
+  подменён на тестовый перехватчик). Реальный сквозной вход (валидный initData → сессия →
+  `prof-email` с настоящим Telegram-именем → авто-принятие приглашения) — НЕ проверен, нужен
+  реальный Telegram; фейковый initData не проходит HMAC-проверку на бэке, что и ожидается.
+
+**⚠️ НУЖНО ЗАДЕПЛОИТЬ ЗАНОВО:** Edge Function `telegram-auth` изменилась (добавлен `start_param`) —
+`supabase functions deploy telegram-auth --project-ref sgsqgpthfufbbyukifbn` нужно прогнать ещё раз,
+иначе в проде останется старая версия без реферальных ссылок. Плюс не забыть бампнуть `?v=` в
+BotFather URL при следующей проверке, если кеш Mini App опять залипнет (см. грабли выше, сейчас
+ассеты `?v=4`).
+
 - **Дашборд-настройки Supabase, которые пришлось выставить:** Email provider ВКЛ + «Confirm email» ВЫКЛ.
