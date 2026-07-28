@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=7">
+    <link rel="stylesheet" href="habbittracker.css?v=8">
 </head>
 <body>
 
@@ -29,10 +29,11 @@
 
     <!-- ЭКРАН: ВЫБОР КАТЕГОРИИ ЗАДАЧ (только у нового юзера, между интро и дашбордом) -->
     <section id="category-picker-screen" style="display:none">
-        <p class="cat-picker-intro">Хотите выбрать список задач по категориям или создадите свои?</p>
         <div class="cat-picker-carousel" id="cat-picker-carousel"></div>
-        <div class="cat-picker-dots" id="cat-picker-dots"></div>
-        <button class="cat-picker-confirm-btn" id="cat-picker-confirm-btn" type="button">Определить задачи самостоятельно</button>
+        <div class="cat-picker-overlay">
+            <div class="cat-picker-dots" id="cat-picker-dots"></div>
+            <button class="cat-picker-confirm-btn" id="cat-picker-confirm-btn" type="button">Определить задачи самостоятельно</button>
+        </div>
     </section>
 
     <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
@@ -105,10 +106,8 @@
                             <div class="checkin-group legacy-field"><label>Главный фокус на сегодня</label><input type="text" class="checkin-text" data-key="focus" placeholder="Например, закрыть сложный проект"></div>
 
                             <div class="checkin-save-wrapper">
-                                <button class="checkin-save-btn" id="save-morning-btn">Сохранить чек-ап</button>
                                 <div class="save-status-row">
                                     <span class="checkin-save-status" id="status-morning"></span>
-                                    <button class="checkin-edit-btn" id="edit-morning-btn" style="display:none;">Редактировать</button>
                                 </div>
                                 <button class="checkin-analytics-btn">Аналитика</button>
                             </div>
@@ -138,10 +137,8 @@
                             <div class="checkin-group"><label>За что благодарен сегодня?</label><input type="text" class="checkin-text" data-key="gratitude" placeholder="Например, за продуктивную встречу"></div>
                             
                             <div class="checkin-save-wrapper">
-                                <button class="checkin-save-btn" id="save-evening-btn">Сохранить чек-ап</button>
                                 <div class="save-status-row">
                                     <span class="checkin-save-status" id="status-evening"></span>
-                                    <button class="checkin-edit-btn" id="edit-evening-btn" style="display:none;">Редактировать</button>
                                 </div>
                                 <button class="checkin-analytics-btn">Аналитика</button>
                             </div>
@@ -272,7 +269,10 @@
     <div id="auth-modal" class="auth-modal">
         <div class="auth-card">
             <button class="auth-close" id="auth-close" type="button" aria-label="Закрыть">✕</button>
-            <div id="auth-checking" class="auth-checking">Входим через Telegram…</div>
+            <div id="auth-checking" class="auth-checking">
+                <div id="auth-checking-text">Входим через Telegram…</div>
+                <button id="auth-retry-btn" class="auth-submit" type="button" style="display:none">Повторить попытку входа</button>
+            </div>
             <div id="auth-form-wrap" style="display:none">
                 <h3 class="auth-title" id="auth-title">Вход</h3>
                 <input type="email" id="auth-email" class="auth-input" placeholder="email" autocomplete="email">
@@ -327,7 +327,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=7"></script>
-    <script type="module" src="auth.js?v=7"></script>
+    <script src="habbittracker.js?v=8"></script>
+    <script type="module" src="auth.js?v=8"></script>
 </body>
 </html>

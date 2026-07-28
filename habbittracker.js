@@ -820,27 +820,41 @@ document.addEventListener('DOMContentLoaded', () => {
             const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
             const visibleW = isMobileHeatmap ? Math.max(document.documentElement.clientWidth - 44, 196) : null;
             const cellW = isMobileHeatmap ? Math.max(28, visibleW / 7) : null;
+            // Сегодня — ПЕРВАЯ клетка слайдера (не нужно скроллить, чтобы его найти): для текущего
+            // месяца дни переупорядочены — сегодня, затем прошлые дни (по убыванию), затем будущие
+            // (по возрастанию, серые/некликабельные). Для чужого месяца порядок остаётся календарным.
+            const now = new Date();
+            const isCurrentMonth = y === now.getFullYear() && m === now.getMonth();
+            let orderedDayList = dayList;
+            if (isCurrentMonth) {
+                const td = now.getDate();
+                const past = []; for (let d = td - 1; d >= 1; d--) past.push(d);
+                const future = []; for (let d = td + 1; d <= days; d++) future.push(d);
+                orderedDayList = [td, ...past, ...future];
+            }
             habits.forEach((h, hIdx) => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
-                const cells = dayList.map(d => {
+                const cells = orderedDayList.map(d => {
                     const k = fdt(y, m, d);
                     const done = isDone(h.uid, k);
                     const future = k > tKey;
                     const wd = WD_SHORT[new Date(y, m, d).getDay()];
                     return `<div class="hm-cell${done ? ' done' : ''}${k === tKey ? ' today' : ''}${future ? ' future' : ''}" data-uid="${h.uid}" data-key="${k}" title="${d} ${MONTH_NAMES[m]} — ${done ? 'выполнено' : 'нет'}"><span class="hm-wd">${wd}</span></div>`;
                 }).join('');
-                // Пока задача сегодня не отмечена — строка «свёрнута» до чек-листа (название
-                // перекрывает клетки, как раньше выглядела вкладка «День»); отмечаешь — клетки
-                // раскрываются, название перечёркивается и остаётся сверху. См. HANDOFF.md §15.
-                const pendingToday = !h.completed;
+                // Подпись под названием — время напоминания и триггер «я сделаю после…», если заданы.
+                let subtextHtml = '';
+                if (h.reminderTime) subtextHtml += `<span>${h.reminderTime}</span>`;
+                if (h.triggerText) subtextHtml += `<span>я сделаю после: ${h.triggerText}</span>`;
                 const rowEl = document.createElement('div');
-                rowEl.className = `hm-row${pendingToday ? ' hm-row-pending' : ''}`;
+                rowEl.className = 'hm-row';
                 rowEl.innerHTML = `
                     <div class="hm-row-head"${visibleW ? ` style="--head-w:${visibleW}px"` : ''}>
-                        <span class="habit-check hm-check"></span>
-                        <span class="hm-label${h.completed ? ' done' : ''}" title="${h.text}">${h.text}</span>
-                        <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
+                        <div class="hm-row-headline">
+                            <span class="hm-label${h.completed ? ' done' : ''}" title="${h.text}">${h.text}</span>
+                            <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
+                        </div>
+                        ${subtextHtml ? `<div class="hm-subtext">${subtextHtml}</div>` : ''}
                     </div>
                     <div class="hm-cells" style="--hm-days:${days}${cellW ? `;--cell-w:${cellW}px` : ''}">${cells}</div>`;
                 hm.appendChild(rowEl);
@@ -856,28 +870,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 hm.querySelectorAll('.hm-row-head').forEach(head => { head.style.transform = `translateX(${offset}px)`; });
             }
             if (isMobileHeatmap) hm.onscroll = syncHeatmapHeads;
-
-            // Для ТЕКУЩЕГО месяца сразу скроллим так, чтобы сегодня было первой видимой клеткой
-            // (дальше вправо — следующие 6 дней, влево — прошлое).
-            const now = new Date();
-            if (isMobileHeatmap && y === now.getFullYear() && m === now.getMonth()) {
-                const firstCell = hm.querySelector('.hm-cell');
-                if (firstCell) {
-                    const cellW = firstCell.getBoundingClientRect().width + 2; // +gap (.hm-cells{gap:2px})
-                    hm.scrollLeft = (now.getDate() - 1) * cellW;
-                }
-            }
             if (isMobileHeatmap) syncHeatmapHeads(); // применить сразу, не дожидаясь события scroll
 
             // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {
                 const settingsIcon = e.target.closest('.hm-settings');
                 if (settingsIcon) { openHabitSettings(+settingsIcon.dataset.idx); return; }
-                // Пока сегодня не отмечено, клетки скрыты за «шапкой»-чек-листом (см. рендер выше) —
-                // клик по шапке (кроме «⋯») эквивалентен клику по сегодняшней клетке под ней.
-                const pendingHead = e.target.closest('.hm-row-pending .hm-row-head');
-                if (pendingHead) {
-                    const todayCell = pendingHead.closest('.hm-row').querySelector('.hm-cell.today');
+                // Клик по шапке строки (название/метаданные, кроме «⋯») — быстрый способ отметить
+                // сегодняшний день, эквивалент клику по клетке «сегодня» под ней.
+                const headline = e.target.closest('.hm-row-head');
+                if (headline && !e.target.closest('.hm-cell')) {
+                    const todayCell = headline.closest('.hm-row').querySelector('.hm-cell.today');
                     if (todayCell) todayCell.click();
                     return;
                 }
@@ -899,11 +902,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     const label = rowEl.querySelector('.hm-label');
                     if (label) label.classList.toggle('done', now);
-                    // Отмечена — перечёркиваем, ждём, пока анимация доиграет, и только потом
-                    // раскрываем клетки (снимаем hm-row-pending, CSS сама анимирует reveal).
-                    // Сняли отметку обратно — сворачиваем сразу, без задержки.
-                    if (now) setTimeout(() => rowEl.classList.remove('hm-row-pending'), 450);
-                    else rowEl.classList.add('hm-row-pending');
                 }
                 saveProgress();
                 // точечно обновляем мету строки, сводку месяца (с анимацией) и колесо жизни —
@@ -1674,24 +1672,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === ЧЕКАПЫ ===
+    // Нет отдельной кнопки «Сохранить» — форма за СЕГОДНЯ всегда интерактивна и автосохраняется
+    // после каждого нажатия/ввода (см. autoSaveCheckin). Заблокированный read-only режим остаётся
+    // только для просмотра ПРОШЛЫХ дней через календарь (см. loadHistoryData).
     function initCheckins(type) {
-        console.log('🔍 initCheckins вызван для:', type);
-        
         if (!dashState.checkins) dashState.checkins = { morning: {}, evening: {} };
         if (!dashState.checkins.morning) dashState.checkins.morning = {};
         if (!dashState.checkins.evening) dashState.checkins.evening = {};
         if (!dashState.checkinHistory) dashState.checkinHistory = {};
-        
-        // === ПРОВЕРКА: если уже сохранено за сегодня — блокируем форму ===
-        const today = new Date().toISOString().split('T')[0];
-        if (dashState.checkinHistory[today]?.[type]) {
-            console.log(`✅ ${type} уже сохранён за сегодня, загружаем и блокируем`);
-            setTimeout(() => lockFormAfterSave(type), 100);
-            updateDateLabel(type, today);
-            return;
-        }
-        // ================================================================
-        
+
         setTimeout(() => {
             const prefix = type;
             const form = document.getElementById(`${prefix}-form`);
@@ -1716,9 +1705,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         btn.classList.add('active');
                         if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
                         dashState.checkins[prefix][key] = i;
-                        saveProgress();
-                        updateCheckinButtonPulse();
-                        checkSaveButtonState(prefix);
+                        autoSaveCheckin(prefix);
                     });
                     container.appendChild(btn);
                 }
@@ -1732,9 +1719,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderTimeScroll(container, checkinsData[key] || '', (label) => {
                     if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
                     dashState.checkins[prefix][key] = label;
-                    saveProgress();
-                    updateCheckinButtonPulse();
-                    checkSaveButtonState(prefix);
+                    autoSaveCheckin(prefix);
                 });
             });
 
@@ -1750,120 +1735,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 newInput.addEventListener('input', (e) => {
                     if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
                     dashState.checkins[prefix][key] = e.target.value;
-                    saveProgress();
-                    updateCheckinButtonPulse();
-                    checkSaveButtonState(prefix);
+                    autoSaveCheckin(prefix);
                 });
             });
-            
-            initSaveButton(prefix);
+
+            updateSavedStatus(prefix);
             updateDateLabel(type, null);
-            console.log('✅ initCheckins завершён');
         }, 150);
     }
 
-    function initSaveButton(type) {
-        const btn = document.getElementById(`save-${type}-btn`);
-        const status = document.getElementById(`status-${type}`);
-        if (!btn || !status) return;
-        
-        const today = new Date().toISOString().split('T')[0];
-        const history = dashState.checkinHistory || {};
-        const todayData = history[today];
-        
-        // Если мы в режиме истории, кнопку сохранения не показываем
-        if (currentHistoryType === type) {
-             btn.style.display = 'none';
-             // Логика кнопки "Назад" обрабатывается в loadHistoryData
-             return;
-        }
-
-        if (todayData && todayData[type] && Object.keys(todayData[type]).length > 0) {
-            btn.classList.add('saved');
-            btn.innerHTML = '✓ Сохранено';
-            btn.disabled = true;
-            status.textContent = 'Чек-ап сохранён';
-            status.classList.add('show');
-        } else {
-            btn.classList.remove('saved');
-            btn.innerHTML = 'Сохранить чек-ап';
-            btn.disabled = false;
-            status.classList.remove('show');
-            btn.style.opacity = '0.5';
-        }
-        
-        // Удаляем старую кнопку "Назад", если мы вернулись из истории
-        const backBtn = document.getElementById('back-to-today-btn');
-        if (backBtn) backBtn.remove();
-        
-        // Назначаем обработчик заново (на случай если он был удален клонированием)
-        // Но лучше сделать один раз. Сделаем проверку.
-        if (!btn.dataset.handlerAttached) {
-            btn.onclick = () => saveCheckin(type);
-            btn.dataset.handlerAttached = "true";
-        }
-    }
-
-    function saveCheckin(type) {
+    // Автосохранение чек-апа — вызывается после КАЖДОГО взаимодействия (шкала/пикер времени/текст),
+    // заменяет собой бывшую кнопку «Сохранить чек-ап» (юзер попросил убрать явное сохранение).
+    // Коммитит черновик dashState.checkins[type] в постоянную dashState.checkinHistory[сегодня][type]
+    // и начисляет +3 XP один раз за день (та же защита от фарма, что была у ручного сохранения).
+    function autoSaveCheckin(type) {
         const today = new Date().toISOString().split('T')[0];
         if (!dashState.checkinHistory) dashState.checkinHistory = {};
         if (!dashState.checkinHistory[today]) dashState.checkinHistory[today] = {};
-        
+
         const checkinData = JSON.parse(JSON.stringify(dashState.checkins[type] || {}));
-        if (Object.keys(checkinData).length === 0) {
-            alert('Заполни хотя бы одно поле перед сохранением!');
-            return;
-        }
-        
-        // Проверяем, было ли уже сохранено (чтобы не фармить XP)
+        if (Object.keys(checkinData).length === 0) return;
+
         const wasAlreadySaved = !!dashState.checkinHistory[today][type];
-        
         dashState.checkinHistory[today][type] = { ...checkinData, savedAt: new Date().toISOString() };
-        
-        // Начисляем XP только если это ПЕРВОЕ сохранение за сегодня
-        if (!wasAlreadySaved) {
-            const xpEarned = 3;
-            dashState.currentXP += xpEarned;
-            updateProgressUI();
-        }
-        
+
+        if (!wasAlreadySaved) { dashState.currentXP += 3; updateProgressUI(); }
+
         saveProgress();
-        
-        const btn = document.getElementById(`save-${type}-btn`);
-        const status = document.getElementById(`status-${type}`);
-        const editBtn = document.getElementById(`edit-${type}-btn`);
-        
-        if (btn) {
-            btn.classList.add('saved');
-            btn.innerHTML = `✓ Сохранено`;
-            btn.disabled = true;
-            btn.style.transform = 'scale(1.05)';
-            setTimeout(() => { btn.style.transform = ''; }, 200);
-        }
-        if (status) {
-            status.textContent = wasAlreadySaved ? `Обновлено в ${today}` : `Сохранено в ${today}`;
-            status.classList.add('show');
-        }
-        if (editBtn) {
-            editBtn.style.display = 'inline-block';
-            editBtn.onclick = () => enableEditing(type);
-        }
-        
-        // Снова блокируем форму
-        setTimeout(() => lockFormAfterSave(type), 100);
-        
+        updateSavedStatus(type);
         updateCheckinButtonPulse();
     }
 
-    function checkSaveButtonState(type) {
-        const btn = document.getElementById(`save-${type}-btn`);
-        if (!btn || btn.disabled) return;
-        // Если мы в режиме истории, не трогаем прозрачность
-        if (currentHistoryType === type) return;
-        
-        const checkinData = dashState.checkins[type] || {};
-        const hasData = Object.keys(checkinData).some(key => checkinData[key] !== '');
-        btn.style.opacity = hasData ? '1' : '0.5';
+    function updateSavedStatus(type) {
+        const status = document.getElementById(`status-${type}`);
+        if (!status || currentHistoryType === type) return;
+        const today = new Date().toISOString().split('T')[0];
+        const saved = dashState.checkinHistory[today]?.[type];
+        status.textContent = saved ? 'Сохранено' : '';
+        status.classList.toggle('show', !!saved);
     }
 
     // === ТАЙМЕР ===
@@ -2249,173 +2158,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Сегодняшняя форма больше никогда не блокируется (нет кнопки «Сохранить» — см. autoSaveCheckin
+    // выше) — просто перерисовываем её интерактивной поверх черновика dashState.checkins[type].
     function loadTodayData(type) {
         const form = document.getElementById(`${type}-form`);
         if (form) form.classList.remove('history-mode');
-        
+
         const dateInput = document.getElementById(`date-input-${type}`);
         if (dateInput) dateInput.value = '';
-        
-        const today = new Date().toISOString().split('T')[0];
-        const isSaved = dashState.checkinHistory[today]?.[type];
-        
-        // === Если уже сохранено — сразу блокируем ===
-        if (isSaved) {
-            console.log(`🔒 ${type} за сегодня уже сохранён, блокируем`);
-            setTimeout(() => lockFormAfterSave(type), 50);
-            updateDateLabel(type, today);
-            return;
-        }
-        // =========================================
-        
+
         initCheckins(type);
-        
-        const btn = document.getElementById(`save-${type}-btn`);
-        if (btn) btn.style.display = 'inline-block';
-        
-        updateDateLabel(type, null);
-        
+
         const backBtn = document.getElementById('back-to-today-btn');
         if (backBtn) backBtn.remove();
-    }
-
-    function lockFormAfterSave(type) {
-        const today = new Date().toISOString().split('T')[0];
-        const savedData = dashState.checkinHistory[today]?.[type];
-        
-        if (!savedData) return; // Если нет сохранённых данных — не блокируем
-        
-        const form = document.getElementById(`${type}-form`);
-        form.classList.add('history-mode');
-        
-        // Заполняем форму сохранёнными данными
-        form.querySelectorAll('.scale-container').forEach(container => {
-            const key = container.dataset.key;
-            const val = savedData[key] || 0;
-            container.innerHTML = '';
-            container.className = 'scale-container';
-            
-            for (let i = 1; i <= 10; i++) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = `scale-btn ${i === val ? 'active' : ''}`;
-                btn.textContent = i;
-                btn.disabled = true;
-                container.appendChild(btn);
-            }
-        });
-        form.querySelectorAll('.time-scroll-container').forEach(container => {
-            renderTimeScroll(container, savedData[container.dataset.key] || ''); // без onSelect — заблокировано
-        });
-
-        form.querySelectorAll('input').forEach(input => {
-            const key = input.dataset.key;
-            if (key) input.value = savedData[key] || '';
-            input.disabled = true;
-            input.readOnly = true;
-        });
-
-        // Скрываем кнопку сохранения
-        const saveBtn = document.getElementById(`save-${type}-btn`);
-        if (saveBtn) saveBtn.style.display = 'none';
-        
-        // Показываем статус
-        const status = document.getElementById(`status-${type}`);
-        if (status) {
-            status.textContent = 'Чек-ап сохранён';
-            status.classList.add('show');
-        }
-        
-        // === ПОКАЗЫВАЕМ КНОПКУ РЕДАКТИРОВАНИЯ ===
-        const editBtn = document.getElementById(`edit-${type}-btn`);
-        if (editBtn) {
-            editBtn.style.display = 'inline-block';
-            editBtn.onclick = () => enableEditing(type);
-        }
-        // =========================================
-        
-        // Обновляем метку даты
-        updateDateLabel(type, today);
-    }
-
-    function enableEditing(type) {
-        const form = document.getElementById(`${type}-form`);
-        const today = new Date().toISOString().split('T')[0];
-        
-        // Загружаем сохранённые данные во временное хранилище
-        const savedData = dashState.checkinHistory[today]?.[type] || {};
-        dashState.checkins[type] = { ...savedData };
-        
-        form.classList.remove('history-mode');
-        
-        // UI обновления
-        const editBtn = document.getElementById(`edit-${type}-btn`);
-        const saveBtn = document.getElementById(`save-${type}-btn`);
-        const status = document.getElementById(`status-${type}`);
-        
-        if (editBtn) editBtn.style.display = 'none';
-        
-        // === ИСПРАВЛЕНИЕ: Показываем кнопку и ВЕШАЕМ ОБРАБОТЧИК ===
-        if (saveBtn) {
-            saveBtn.style.display = 'inline-block';
-            saveBtn.innerHTML = 'Обновить чек-ап';
-            saveBtn.disabled = false;
-            saveBtn.classList.remove('saved');
-            // Явно назначаем функцию сохранения
-            saveBtn.onclick = () => saveCheckin(type);
-        }
-        // =========================================
-        
-        if (status) status.classList.remove('show');
-        
-        // Перерисовываем интерактивные элементы
-        setTimeout(() => {
-            // Шкалы
-            form.querySelectorAll('.scale-container').forEach(container => {
-                const key = container.dataset.key;
-                const val = dashState.checkins[type]?.[key] || 0;
-                container.innerHTML = '';
-                container.className = 'scale-container';
-                for (let i = 1; i <= 10; i++) {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = `scale-btn ${i === val ? 'active' : ''}`;
-                    btn.textContent = i;
-                    btn.addEventListener('click', () => {
-                        container.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        dashState.checkins[type][key] = i;
-                        saveProgress();
-                    });
-                    container.appendChild(btn);
-                }
-            });
-
-            // Пикеры времени
-            form.querySelectorAll('.time-scroll-container').forEach(container => {
-                const key = container.dataset.key;
-                renderTimeScroll(container, dashState.checkins[type]?.[key] || '', (label) => {
-                    dashState.checkins[type][key] = label;
-                    saveProgress();
-                });
-            });
-
-            // Инпуты
-            form.querySelectorAll('input').forEach(input => {
-                const key = input.dataset.key;
-                if (!key) return;
-                input.value = dashState.checkins[type]?.[key] || '';
-                input.disabled = false;
-                input.readOnly = false;
-                
-                const newInput = input.cloneNode(true);
-                input.parentNode.replaceChild(newInput, input);
-                newInput.addEventListener('input', (e) => {
-                    dashState.checkins[type][key] = e.target.value;
-                    saveProgress();
-                });
-            });
-        }, 50);
     }
 
     function loadHistoryData(type, date) {
@@ -2459,22 +2214,19 @@ document.addEventListener('DOMContentLoaded', () => {
             input.readOnly = true;
         });
     
-        // Скрываем кнопку сохранения
-        const saveBtn = document.getElementById(`save-${type}-btn`);
-        if (saveBtn) saveBtn.style.display = 'none';
-        
         updateDateLabel(type, date);
 
         // Кнопка возврата
         const oldBackBtn = document.getElementById('back-to-today-btn');
         if (oldBackBtn) oldBackBtn.remove();
-        
+
         const backBtn = document.createElement('button');
         backBtn.className = 'checkin-save-btn';
         backBtn.id = 'back-to-today-btn';
         backBtn.innerHTML = '← Вернуться к сегодня';
         backBtn.onclick = () => loadTodayData(type);
-        saveBtn.parentNode.appendChild(backBtn);
+        const wrapper = form.querySelector('.checkin-save-wrapper');
+        if (wrapper) wrapper.appendChild(backBtn);
     }
 
     function openAnalytics(type) {
@@ -2698,10 +2450,21 @@ document.addEventListener('DOMContentLoaded', () => {
     function openProModePaywall() {
         const m = document.getElementById('promode-paywall-modal');
         if (m) m.classList.add('active');
+        updatePromodeFamilyButton();
     }
     function closeProModePaywall() {
         const m = document.getElementById('promode-paywall-modal');
         if (m) m.classList.remove('active');
+    }
+    // Family дешевле Personal именно за счёт нескольких человек — покупать его в одиночку
+    // бессмысленно, поэтому пока в семье (window.familyMemberCount, см. auth.js renderFamily) никого
+    // нет, кнопка недоступна и явно об этом сообщает.
+    function updatePromodeFamilyButton() {
+        const btn = document.getElementById('promode-buy-family-btn');
+        if (!btn) return;
+        const hasFamily = (window.familyMemberCount || 0) > 0;
+        btn.disabled = !hasFamily;
+        btn.textContent = hasFamily ? 'Купить Family' : 'Купить Family недоступно';
     }
     const promodeCloseBtn = document.getElementById('promode-close');
     if (promodeCloseBtn) promodeCloseBtn.addEventListener('click', closeProModePaywall);
@@ -2713,6 +2476,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const promodeBuyFamilyBtn = document.getElementById('promode-buy-family-btn');
     if (promodeBuyFamilyBtn) promodeBuyFamilyBtn.addEventListener('click', () => {
+        if (!(window.familyMemberCount || 0)) return; // недоступно — см. updatePromodeFamilyButton
         const size = Math.max(2, Math.min(10, Number(document.getElementById('promode-family-size').value) || 2));
         if (typeof window.buyFamilyPlanOneClick === 'function') window.buyFamilyPlanOneClick(size, 'promode-msg', 'promode-buy-family-btn');
     });

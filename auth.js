@@ -11,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 let mode = 'login'; // 'login' | 'register'
 let me = null, myEmail = null, myDisplayName = null; // id/email/кастомное имя залогиненного
 let mandatory = false, onAuthed = null; // принудительный вход после тапа по заставке
+window.familyMemberCount = 0; // до загрузки семьи/до входа — считаем «никого нет» (см. renderFamily)
 
 const TIMED_OUT = Symbol('timeout');
 // Защита от зависшего запроса к Supabase (см. коммент у boot()): если промис не резолвится за
@@ -78,6 +79,22 @@ async function telegramSignIn(initData) {
 }
 window.telegramSignIn = telegramSignIn;
 
+// Кнопка «Повторить попытку входа» в #auth-checking (см. index.html) — на случай, если первая
+// попытка при тапе по интро не удалась (сеть, ошибка Edge Function и т.п.), см. HANDOFF.md/refresh().
+async function retryTelegramSignIn() {
+  const btn = $('auth-retry-btn');
+  btn.disabled = true;
+  $('auth-checking-text').textContent = 'Входим через Telegram…';
+  btn.style.display = 'none';
+  try {
+    const initData = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
+    if (initData) await telegramSignIn(initData);
+    else await refresh();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Вызывается из habbittracker.js после тапа по заставке: показывает форму и НЕ пускает дальше,
 // пока юзер не авторизуется (закрыть модалку X/бэкдропом/Esc нельзя, пока mandatory=true).
 function requireAuth(cb) {
@@ -119,6 +136,8 @@ async function refresh() {
   // успевает отработать) юзер видит форму входа, которая через секунду подменяется профилем —
   // выглядит как «перелогинь меня» (баг, о котором сообщил юзер).
   $('auth-checking').style.display = 'block';
+  $('auth-checking-text').textContent = 'Входим через Telegram…';
+  $('auth-retry-btn').style.display = 'none';
   $('auth-form-wrap').style.display = 'none';
   $('auth-profile').style.display = 'none';
 
@@ -131,13 +150,21 @@ async function refresh() {
     session = r.data.session;
   }
   const inUser = session && session.user;
-  $('auth-checking').style.display = inUser ? 'none' : 'block'; // не вошли — держим «Входим…», форму email не показываем вовсе
   $('auth-form-wrap').style.display = 'none';
   $('auth-profile').style.display = inUser ? 'block' : 'none';
   $('profile-btn').classList.toggle('on', !!inUser);
   me = inUser ? session.user.id : null;
   myEmail = inUser ? (session.user.email || '') : null;
-  if (!inUser) return;
+  if (!inUser) {
+    // Раньше тут навсегда оставался текст «Входим…» — если сессия так и не появилась (сеть,
+    // ошибка Edge Function telegram-auth и т.п.), юзер видел бесконечный спиннер без выхода
+    // (баг, на который пожаловался юзер). Теперь — понятная ошибка + кнопка повторить.
+    $('auth-checking').style.display = 'block';
+    $('auth-checking-text').textContent = 'Не удалось подтвердить вход через Telegram. Проверь соединение и попробуй ещё раз.';
+    $('auth-retry-btn').style.display = 'block';
+    return;
+  }
+  $('auth-checking').style.display = 'none';
   $('prof-email').textContent = tgDisplayId();
   $('prof-id').textContent = '…';
   // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
@@ -234,6 +261,22 @@ function selectPlan(plan) {
   if (plan === 'family') updateFamilyPriceLabel();
 }
 
+// Понятные тексты для кодов ошибок, которые отдают create-invoice/telegram-auth (см. их index.ts).
+// Без этой карты юзер видел только общее "Edge Function returned a non-2xx status code" —
+// supabase-js всегда пишет именно эту фразу в error.message при non-2xx, реальная причина лежит в
+// теле ответа (error.context — исходный Response), а не в error.message.
+const FUNCTION_ERROR_MESSAGES = {
+  not_authenticated: 'Не удалось подтвердить вход через Telegram. Открой профиль (значок сверху), дождись, пока пропадёт «Входим через Telegram…», и попробуй снова',
+  server_misconfigured_no_bot_token: 'Оплата временно недоступна на сервере',
+  bad_plan: 'Неверный план подписки',
+  telegram_api_error: 'Telegram отклонил создание счёта',
+  unexpected: 'Непредвиденная ошибка сервера',
+};
+async function readFunctionErrorBody(error) {
+  if (!error || !error.context || typeof error.context.json !== 'function') return null;
+  try { return await error.context.clone().json(); } catch (e) { return null; }
+}
+
 // Общая покупка — используется и профильной формой (Personal/Family с выбором размера), и
 // одноклиночным пейволлом Pro mode (см. openProModePaywall в habbittracker.js). msgEl/btnEl —
 // опциональные DOM-элементы для статуса/дизейбла, можно вызывать вообще без UI-обвязки.
@@ -245,7 +288,11 @@ async function purchasePlan(plan, familySize, msgEl, btnEl) {
     if (plan === 'family') body.familySize = familySize || 2;
     const { data, error } = await sb.functions.invoke('create-invoice', { body });
     if (error || !data || data.error) {
-      if (msgEl) msgEl.textContent = 'Ошибка: ' + ((error && error.message) || (data && data.error) || 'не удалось создать счёт');
+      let code = data && data.error;
+      let detail = data && data.detail;
+      if (error && !code) { const errBody = await readFunctionErrorBody(error); if (errBody) { code = errBody.error; detail = errBody.detail; } }
+      const friendly = FUNCTION_ERROR_MESSAGES[code];
+      if (msgEl) msgEl.textContent = 'Ошибка: ' + (friendly || detail || code || (error && error.message) || 'не удалось создать счёт');
       return;
     }
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openInvoice) {
@@ -334,6 +381,10 @@ function renderIncoming(list) {
   box.querySelectorAll('.fam-no').forEach(b => b.addEventListener('click', () => respondInvite(b.dataset.id, false)));
 }
 function renderFamily(list) {
+  // Читается пейволлом Pro mode (habbittracker.js) — пока в семье никого нет, покупка Family
+  // недоступна (план дешевле именно ЗА СЧЁТ нескольких человек, покупать его в одиночку не имеет
+  // смысла): кнопка получает текст «Купить Family недоступно» и дизейблится.
+  window.familyMemberCount = list.length;
   const box = $('fam-list');
   if (!list.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше.</div>'; return; }
   box.innerHTML = '<div class="fam-h">Моя семья</div>' + list.map(s =>
@@ -385,6 +436,7 @@ function wire() {
   $('auth-submit').addEventListener('click', submit);
   $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   $('auth-logout').addEventListener('click', async () => { await sb.auth.signOut(); await refresh(); });
+  $('auth-retry-btn').addEventListener('click', retryTelegramSignIn);
   $('sub-plan-personal').addEventListener('click', () => selectPlan('personal'));
   $('sub-plan-family').addEventListener('click', () => selectPlan('family'));
   $('sub-family-size').addEventListener('input', updateFamilyPriceLabel);
