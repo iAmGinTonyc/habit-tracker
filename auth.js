@@ -269,8 +269,12 @@ async function buySubscription() {
   const size = selectedPlan === 'family' ? (Number($('sub-family-size').value) || 2) : null;
   await purchasePlan(selectedPlan, size, $('sub-msg'), $('sub-buy-btn'));
 }
-// Вызывается из пейволла Pro mode (habbittracker.js) — покупка Personal в один клик, без выбора плана.
+// Вызывается из пейволла Pro mode (habbittracker.js) — покупка в один клик, без открытия
+// профильной формы. Family всё равно просит размер семьи (цена от него зависит), но остаётся
+// в том же модальном окне — не «в один клик» в буквальном смысле, а в два (задать число, купить).
 window.buyPersonalPlanOneClick = (msgElId, btnElId) => purchasePlan('personal', null, document.getElementById(msgElId), document.getElementById(btnElId));
+window.buyFamilyPlanOneClick = (familySize, msgElId, btnElId) => purchasePlan('family', familySize, document.getElementById(msgElId), document.getElementById(btnElId));
+window.shareInviteLink = shareInviteLink;
 
 // === РЕФЕРАЛЬНАЯ ССЫЛКА ЧЕРЕЗ TELEGRAM (заменяет ручной ввод ID для приглашения близкого) ===
 // Ссылка вида t.me/BOT/APP?startapp=CODE — при открытии Telegram передаёт CODE в initData как

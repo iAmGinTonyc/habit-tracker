@@ -221,6 +221,54 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
     const MAX_HABITS = 10;
 
+    // === КАТЕГОРИИ ОНБОРДИНГА (экран выбора набора задач для нового юзера) ===
+    // Каждая area — существующая сфера колеса жизни (см. LIFE_AREAS ниже), новых сфер не заводим.
+    // Тексты/категории — см. обсуждение в HANDOFF.md §16.
+    const ONBOARDING_CATEGORIES = [
+        { id: 'spartan', name: 'Спартанец', tasks: [
+            { text: 'Холодный душ 2 минуты', area: 'energy' },
+            { text: '50 отжиманий', area: 'energy' },
+            { text: 'Встать в 6:00', area: 'energy' },
+            { text: 'Без сахара весь день', area: 'emotion' },
+            { text: '10 000 шагов', area: 'energy' }
+        ] },
+        { id: 'longevity', name: 'Вечная жизнь', tasks: [
+            { text: 'Медитация 10 минут', area: 'emotion' },
+            { text: 'Сон 8 часов', area: 'energy' },
+            { text: 'Витамины утром', area: 'energy' },
+            { text: 'Прогулка 30 минут', area: 'energy' },
+            { text: 'Растяжка 10 минут', area: 'energy' }
+        ] },
+        { id: 'student', name: 'Студент', tasks: [
+            { text: 'Читать 20 страниц', area: 'growth' },
+            { text: 'Новое слово/фраза на языке', area: 'growth' },
+            { text: 'Конспект дня 5 строк', area: 'growth' },
+            { text: 'Без соцсетей до 12:00', area: 'emotion' },
+            { text: 'Повторить материал 15 минут', area: 'growth' }
+        ] },
+        { id: 'careerist', name: 'Карьерист', tasks: [
+            { text: 'Главная задача до 12:00', area: 'career' },
+            { text: '3 контакта/звонка по делу', area: 'career' },
+            { text: 'Итоги дня в заметки', area: 'career' },
+            { text: 'Час без уведомлений', area: 'emotion' },
+            { text: 'Проверить бюджет недели', area: 'finance' }
+        ] },
+        { id: 'hearth', name: 'Хранитель очага', tasks: [
+            { text: 'Звонок родителям 10 минут', area: 'social' },
+            { text: 'Убраться 15 минут', area: 'home' },
+            { text: 'Ужин без телефона', area: 'social' },
+            { text: 'Спросить близкого, как день', area: 'social' },
+            { text: 'Приготовить ужин дома', area: 'home' }
+        ] },
+        { id: 'creator', name: 'Творец', tasks: [
+            { text: 'Творить 20 минут', area: 'growth' },
+            { text: 'Дневник 5 предложений', area: 'emotion' },
+            { text: 'Час без телефона утром', area: 'emotion' },
+            { text: 'Сохранить момент дня (фото/запись)', area: 'emotion' },
+            { text: 'Творческий скетч', area: 'growth' }
+        ] }
+    ];
+
     // === КОЛЕСО ЖИЗНИ: СФЕРЫ ===
     const LIFE_AREAS = [
         { id: 'career',  name: 'Карьера',                 short: 'Карьера' },
@@ -250,11 +298,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return (t === undefined || t === null) ? m.target : t;
     };
 
-    function createDefaultState() {
+    // habitsSource: не передан → универсальный DEFAULT_HABITS (7 сфер); массив (в т.ч. пустой [],
+    // всегда truthy в JS) — из экрана выбора категории (см. showCategoryPicker), пустой = «определю сам».
+    function createDefaultState(habitsSource) {
+        const src = habitsSource || DEFAULT_HABITS;
         return {
             level: 1,
             currentXP: 0,
-            habits: DEFAULT_HABITS.map(h => ({ text: h.text, completed: false, uid: newUid(), areas: [h.area] })),
+            habits: src.map(h => ({ text: h.text, completed: false, uid: newUid(), areas: h.area ? [h.area] : [] })),
             unlockedGames: [], // пусто на старте → выбор первой игры при открытии «Игр»
             lastActiveDate: todayKey(),
             checkins: { morning: {}, evening: {} },
@@ -268,6 +319,60 @@ document.addEventListener('DOMContentLoaded', () => {
             onboardingDone: false, // новый пользователь — покажем тур
             seenHints: {}
         };
+    }
+
+    // Экран выбора категории (только у нового юзера, между интро и дашбордом). onDone получает
+    // либо массив {text,area} выбранной категории, либо null («определю задачи самостоятельно»
+    // — пустой список привычек, юзер добавляет через «+ добавить привычку» в «Задачах»).
+    function showCategoryPicker(onDone) {
+        const screen = document.getElementById('category-picker-screen');
+        const carousel = document.getElementById('cat-picker-carousel');
+        const dots = document.getElementById('cat-picker-dots');
+        const confirmBtn = document.getElementById('cat-picker-confirm-btn');
+        if (!screen || !carousel || !dots || !confirmBtn) { onDone(null); return; }
+
+        let selectedId = null;
+        carousel.innerHTML = ONBOARDING_CATEGORIES.map(cat => `
+            <div class="cat-card" data-id="${cat.id}">
+                <div class="cat-card-inner">
+                    <div class="cat-card-name">${cat.name}</div>
+                    <ul class="cat-card-tasks">${cat.tasks.map(t => `<li>${t.text}</li>`).join('')}</ul>
+                </div>
+            </div>`).join('');
+        dots.innerHTML = ONBOARDING_CATEGORIES.map((_, i) => `<span class="cat-picker-dot${i === 0 ? ' active' : ''}"></span>`).join('');
+
+        function updateConfirmBtn() {
+            confirmBtn.textContent = selectedId ? 'Подтвердить' : 'Определить задачи самостоятельно';
+        }
+        updateConfirmBtn();
+
+        carousel.querySelectorAll('.cat-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const id = card.dataset.id;
+                const already = selectedId === id;
+                carousel.querySelectorAll('.cat-card').forEach(c => c.classList.remove('selected'));
+                selectedId = already ? null : id;
+                if (!already) card.classList.add('selected');
+                updateConfirmBtn();
+            });
+        });
+
+        // Точки-индикаторы карусели — подсвечиваем ближайшую к центру видимую карточку при скролле
+        carousel.onscroll = () => {
+            const idx = Math.round(carousel.scrollLeft / carousel.clientWidth);
+            dots.querySelectorAll('.cat-picker-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+        };
+
+        confirmBtn.onclick = () => {
+            screen.style.display = 'none';
+            carousel.onscroll = null;
+            const cat = ONBOARDING_CATEGORIES.find(c => c.id === selectedId);
+            // [] (не null!) — null falsy в JS и в createDefaultState() свалился бы обратно
+            // на DEFAULT_HABITS через `habitsSource || DEFAULT_HABITS` (поймано при проверке).
+            onDone(cat ? cat.tasks : []);
+        };
+
+        screen.style.display = 'flex';
     }
 
     // === ИНИЦИАЛИЗАЦИЯ ===
@@ -334,10 +439,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isTelegramContext()) {
                     const proceedLocal = () => {
                         loadingOverlay.classList.remove('active');
-                        dashState = createDefaultState();
-                        window.dashState = dashState;
-                        saveProgress();
-                        showDashboard();
+                        // Новый юзер выбирает набор задач по категории или «сам» — см. HANDOFF.md §16.
+                        showCategoryPicker((chosenTasks) => {
+                            dashState = createDefaultState(chosenTasks);
+                            window.dashState = dashState;
+                            saveProgress();
+                            showDashboard();
+                        });
                     };
                     // Пытаемся подтвердить identity через Edge Function telegram-auth (auth.js →
                     // window.telegramSignIn): проверка initData на сервере + настоящая Supabase-сессия,
@@ -2599,9 +2707,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (promodeCloseBtn) promodeCloseBtn.addEventListener('click', closeProModePaywall);
     const promodeModalEl = document.getElementById('promode-paywall-modal');
     if (promodeModalEl) promodeModalEl.addEventListener('click', (e) => { if (e.target === promodeModalEl) closeProModePaywall(); });
-    const promodeBuyBtn = document.getElementById('promode-buy-btn');
-    if (promodeBuyBtn) promodeBuyBtn.addEventListener('click', () => {
-        if (typeof window.buyPersonalPlanOneClick === 'function') window.buyPersonalPlanOneClick('promode-msg', 'promode-buy-btn');
+    const promodeBuyPersonalBtn = document.getElementById('promode-buy-personal-btn');
+    if (promodeBuyPersonalBtn) promodeBuyPersonalBtn.addEventListener('click', () => {
+        if (typeof window.buyPersonalPlanOneClick === 'function') window.buyPersonalPlanOneClick('promode-msg', 'promode-buy-personal-btn');
+    });
+    const promodeBuyFamilyBtn = document.getElementById('promode-buy-family-btn');
+    if (promodeBuyFamilyBtn) promodeBuyFamilyBtn.addEventListener('click', () => {
+        const size = Math.max(2, Math.min(10, Number(document.getElementById('promode-family-size').value) || 2));
+        if (typeof window.buyFamilyPlanOneClick === 'function') window.buyFamilyPlanOneClick(size, 'promode-msg', 'promode-buy-family-btn');
+    });
+    const promodeInviteBtn = document.getElementById('promode-invite-btn');
+    if (promodeInviteBtn) promodeInviteBtn.addEventListener('click', () => {
+        if (typeof window.shareInviteLink === 'function') window.shareInviteLink();
     });
 
     // === ПИТОМЕЦ: «бегающий» роумер (десктоп) ===

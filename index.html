@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=6">
+    <link rel="stylesheet" href="habbittracker.css?v=7">
 </head>
 <body>
 
@@ -25,6 +25,14 @@
             <p class="intro-lead">Привычки, сон, настроение, колесо жизни — и тихая поддержка близких.</p>
             <div class="hint-text">нажми на экран, чтобы начать</div>
         </div>
+    </section>
+
+    <!-- ЭКРАН: ВЫБОР КАТЕГОРИИ ЗАДАЧ (только у нового юзера, между интро и дашбордом) -->
+    <section id="category-picker-screen" style="display:none">
+        <p class="cat-picker-intro">Хотите выбрать список задач по категориям или создадите свои?</p>
+        <div class="cat-picker-carousel" id="cat-picker-carousel"></div>
+        <div class="cat-picker-dots" id="cat-picker-dots"></div>
+        <button class="cat-picker-confirm-btn" id="cat-picker-confirm-btn" type="button">Определить задачи самостоятельно</button>
     </section>
 
     <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
@@ -205,8 +213,13 @@
                     </div>
                     <p class="promode-desc">Числовые показатели дня вместо списка привычек — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.</p>
                 </div>
-                <div class="habit-settings-footer" style="justify-content:center">
-                    <button class="settings-btn save" id="promode-buy-btn" type="button">Купить Personal — 250 Stars/мес</button>
+                <div class="habit-settings-footer promode-plans">
+                    <button class="settings-btn save" id="promode-buy-personal-btn" type="button">Купить Personal — 250 Stars/мес</button>
+                    <div class="promode-family-row">
+                        <input type="number" id="promode-family-size" min="2" max="10" value="2">
+                        <button class="settings-btn save" id="promode-buy-family-btn" type="button">Купить Family</button>
+                    </div>
+                    <button class="auth-copy" id="promode-invite-btn" type="button">Пригласить близкого</button>
                 </div>
                 <div class="promode-msg" id="promode-msg"></div>
             </div>
@@ -314,7 +327,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=6"></script>
-    <script type="module" src="auth.js?v=6"></script>
+    <script src="habbittracker.js?v=7"></script>
+    <script type="module" src="auth.js?v=7"></script>
 </body>
 </html>
