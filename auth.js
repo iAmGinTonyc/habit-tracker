@@ -151,6 +151,7 @@ async function refresh() {
   }
   syncMyStats();  // отправить свою сводку в облако
   loadFamily();   // входящие приглашения + семья
+  loadSubscription(); // статус триала/подписки
 }
 
 const defaultName = () => {
@@ -186,6 +187,79 @@ async function syncMyStats() {
     level: s.level, streak: s.streak, week_pct: s.weekPct, mood: s.mood,
     updated_at: new Date().toISOString()
   });
+}
+
+// === ПОДПИСКА (Stars) ===
+// Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма считается на бэке
+// (create-invoice), эти константы держим в синхроне вручную (см. HANDOFF.md §15).
+const PRICE_PERSONAL_RUB = 500;
+const PRICE_FAMILY_PER_PERSON_RUB = 350;
+let selectedPlan = null;
+
+async function loadSubscription() {
+  if (!me) return;
+  const r = await withTimeout(sb.from('subscriptions').select('*').eq('user_id', me).maybeSingle(), 4000);
+  if (r === TIMED_OUT || !r.data) { $('sub-status').textContent = '—'; return; }
+  const s = r.data;
+  const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '';
+  if (s.status === 'active') {
+    $('sub-status').textContent = s.plan === 'family'
+      ? `Family (${s.family_size} чел.) до ${fmt(s.expires_at)}`
+      : `Personal до ${fmt(s.expires_at)}`;
+  } else if (s.status === 'trial') {
+    const started = new Date(s.trial_started_at).getTime();
+    const daysLeft = 7 - Math.floor((Date.now() - started) / 86400000);
+    $('sub-status').textContent = daysLeft > 0 ? `Триал — ещё ${daysLeft} дн.` : 'Триал закончился';
+  } else {
+    $('sub-status').textContent = 'Подписка истекла';
+  }
+}
+
+function updateFamilyPriceLabel() {
+  const size = Math.max(2, Math.min(10, Number($('sub-family-size').value) || 2));
+  const total = size * PRICE_FAMILY_PER_PERSON_RUB;
+  $('sub-plan-family').querySelector('.sub-price').textContent = `${size}×${PRICE_FAMILY_PER_PERSON_RUB}₽ = ${total}₽/мес`;
+}
+
+function selectPlan(plan) {
+  selectedPlan = plan;
+  $('sub-plan-personal').classList.toggle('active', plan === 'personal');
+  $('sub-plan-family').classList.toggle('active', plan === 'family');
+  $('sub-family-size-row').style.display = plan === 'family' ? 'flex' : 'none';
+  $('sub-buy-btn').style.display = 'block';
+  $('sub-msg').textContent = '';
+  if (plan === 'family') updateFamilyPriceLabel();
+}
+
+async function buySubscription() {
+  if (!selectedPlan) return;
+  const btn = $('sub-buy-btn');
+  const msg = $('sub-msg');
+  btn.disabled = true;
+  msg.textContent = 'Готовим счёт…';
+  try {
+    const body = { plan: selectedPlan };
+    if (selectedPlan === 'family') body.familySize = Number($('sub-family-size').value) || 2;
+    const { data, error } = await sb.functions.invoke('create-invoice', { body });
+    if (error || !data || data.error) {
+      msg.textContent = 'Ошибка: ' + ((error && error.message) || (data && data.error) || 'не удалось создать счёт');
+      return;
+    }
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openInvoice) {
+      window.Telegram.WebApp.openInvoice(data.link, (status) => {
+        if (status === 'paid') { msg.textContent = 'Оплачено! Обновляем статус…'; setTimeout(loadSubscription, 1500); }
+        else if (status === 'cancelled') msg.textContent = 'Отменено';
+        else if (status === 'failed') msg.textContent = 'Платёж не прошёл';
+        else msg.textContent = '';
+      });
+    } else {
+      window.open(data.link, '_blank'); // вне Telegram (тестирование) — просто открыть ссылку
+    }
+  } catch (e) {
+    msg.textContent = 'Сеть недоступна, попробуй ещё раз';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // === РЕФЕРАЛЬНАЯ ССЫЛКА ЧЕРЕЗ TELEGRAM (заменяет ручной ввод ID для приглашения близкого) ===
@@ -297,6 +371,10 @@ function wire() {
   $('auth-submit').addEventListener('click', submit);
   $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   $('auth-logout').addEventListener('click', async () => { await sb.auth.signOut(); await refresh(); });
+  $('sub-plan-personal').addEventListener('click', () => selectPlan('personal'));
+  $('sub-plan-family').addEventListener('click', () => selectPlan('family'));
+  $('sub-family-size').addEventListener('input', updateFamilyPriceLabel);
+  $('sub-buy-btn').addEventListener('click', buySubscription);
   $('prof-share').addEventListener('click', shareInviteLink);
   $('prof-copy').addEventListener('click', () => {
     const id = $('prof-id').textContent;

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=4">
+    <link rel="stylesheet" href="habbittracker.css?v=5">
 </head>
 <body>
 
@@ -248,6 +248,19 @@
                     <button class="prof-name-save" id="prof-name-save" type="button">Сохранить</button>
                 </div>
                 <div class="prof-name-msg" id="prof-name-msg"></div>
+                <div class="sub-section">
+                    <div class="auth-row"><span class="auth-k">Подписка</span><span class="auth-v" id="sub-status">—</span></div>
+                    <div class="sub-plans">
+                        <button class="sub-plan-btn" id="sub-plan-personal" type="button" data-plan="personal">Personal<span class="sub-price">500₽/мес</span></button>
+                        <button class="sub-plan-btn" id="sub-plan-family" type="button" data-plan="family">Family<span class="sub-price">от 700₽/мес</span></button>
+                    </div>
+                    <div class="sub-family-size" id="sub-family-size-row" style="display:none">
+                        <label for="sub-family-size">Сколько человек в семье (2–10)</label>
+                        <input type="number" id="sub-family-size" min="2" max="10" value="2">
+                    </div>
+                    <button class="auth-copy" id="sub-buy-btn" type="button" style="display:none">Оформить подписку</button>
+                    <div class="sub-msg" id="sub-msg"></div>
+                </div>
                 <div class="auth-row"><span class="auth-k">Твой ID для приглашений</span><span class="auth-v auth-id" id="prof-id">—</span></div>
                 <button class="auth-copy" id="prof-share" type="button">Поделиться ссылкой-приглашением</button>
                 <button class="auth-copy" id="prof-copy" type="button">Скопировать ID</button>
@@ -272,7 +285,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=4"></script>
-    <script type="module" src="auth.js?v=4"></script>
+    <script src="habbittracker.js?v=5"></script>
+    <script type="module" src="auth.js?v=5"></script>
 </body>
 </html>
