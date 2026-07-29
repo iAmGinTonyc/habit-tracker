@@ -33,26 +33,49 @@
       ========================================= */
    #category-picker-screen { position: fixed; inset: 0; z-index: 500; background: #000; display: flex; flex-direction: column; padding: 0; }
    .cat-picker-carousel { flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-   /* Карточка — на весь экран (без полей/скруглений, полный bleed), чёрно-белый градиент + диагональная
-      полоса «блеска», которая едет через карту при выборе (см. .cat-card-inner::before). */
+   /* Карточка — на весь экран (без полей/скруглений, полный bleed). Чередуются чёрная/белая —
+      «переворот» при пролистывании (юзер прислал референс с чёрно-белыми карточками заметок/
+      календаря): чётные .cat-card-dark, нечётные .cat-card-light, см. JS (showCategoryPicker).
+      Диагональная полоса «блеска» едет через карту (см. ::before), цвет блеска инвертирован
+      под вариант. */
    .cat-card { flex: 0 0 100%; scroll-snap-align: center; display: flex; box-sizing: border-box; cursor: pointer; }
    .cat-card-inner {
        flex: 1; display: flex; flex-direction: column; justify-content: center; position: relative; overflow: hidden;
        padding: 72px 32px 150px; box-sizing: border-box;
-       background: linear-gradient(165deg, #050505 0%, #262626 38%, #0c0c0c 68%, #000 100%);
        box-shadow: inset 0 0 0 0 #fff;
        transition: box-shadow 0.25s ease;
    }
+   .cat-card-dark .cat-card-inner { background: linear-gradient(165deg, #050505 0%, #262626 38%, #0c0c0c 68%, #000 100%); }
+   .cat-card-light .cat-card-inner { background: linear-gradient(165deg, #fff 0%, #ececec 38%, #f7f7f7 68%, #fff 100%); }
    .cat-card-inner::before {
-       content: ''; position: absolute; inset: -60% -20%;
-       background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,0.14) 45%, rgba(255,255,255,0.32) 50%, rgba(255,255,255,0.14) 55%, transparent 68%);
-       pointer-events: none;
+       content: ''; position: absolute; inset: -60% -20%; pointer-events: none;
    }
-   .cat-card.selected .cat-card-inner { box-shadow: inset 0 0 0 3px #fff; }
-   .cat-card-name { font-size: 30px; font-weight: 700; text-align: center; margin-bottom: 32px; letter-spacing: 0.2px; color: #fff; position: relative; z-index: 1; }
+   .cat-card-dark .cat-card-inner::before {
+       background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,0.14) 45%, rgba(255,255,255,0.32) 50%, rgba(255,255,255,0.14) 55%, transparent 68%);
+   }
+   .cat-card-light .cat-card-inner::before {
+       background: linear-gradient(115deg, transparent 32%, rgba(0,0,0,0.08) 45%, rgba(0,0,0,0.16) 50%, rgba(0,0,0,0.08) 55%, transparent 68%);
+   }
+   .cat-card-dark.selected .cat-card-inner { box-shadow: inset 0 0 0 3px #fff; }
+   .cat-card-light.selected .cat-card-inner { box-shadow: inset 0 0 0 3px #111; }
+   /* Заголовок (эйбров-лейбл + название) «въезжает» с лёгким подъёмом и затуханием, когда карточка
+      становится активной (центральной) — retrigger идёт просто через transition на смену класса
+      .active в JS (onscroll), без @keyframes — надёжнее при частом toggle. */
+   .cat-card-heading { position: relative; z-index: 1; margin-bottom: 32px; opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+   .cat-card.active .cat-card-heading { opacity: 1; transform: translateY(0); }
+   .cat-card-eyebrow { display: block; text-align: center; font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+   .cat-card-dark .cat-card-eyebrow { color: rgba(255,255,255,0.45); }
+   .cat-card-light .cat-card-eyebrow { color: rgba(0,0,0,0.4); }
+   .cat-card-name { font-size: 30px; font-weight: 700; text-align: center; letter-spacing: 0.2px; }
+   .cat-card-dark .cat-card-name { color: #fff; }
+   .cat-card-light .cat-card-name { color: #111; }
    .cat-card-tasks { list-style: none; display: flex; flex-direction: column; gap: 16px; position: relative; z-index: 1; }
-   .cat-card-tasks li { font-size: 15px; color: #ddd; padding-left: 18px; position: relative; line-height: 1.4; }
-   .cat-card-tasks li::before { content: '—'; position: absolute; left: 0; color: #777; }
+   .cat-card-tasks li { font-size: 15px; padding-left: 18px; position: relative; line-height: 1.4; }
+   .cat-card-dark .cat-card-tasks li { color: #ddd; }
+   .cat-card-light .cat-card-tasks li { color: #333; }
+   .cat-card-tasks li::before { content: '—'; position: absolute; left: 0; }
+   .cat-card-dark .cat-card-tasks li::before { color: #777; }
+   .cat-card-light .cat-card-tasks li::before { color: #aaa; }
    .cat-picker-overlay {
        position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
        display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 20px 28px 30px;
@@ -597,10 +620,15 @@ canvas { width: 100%; height: 150px; }
    .hm-settings:hover { color: #111; }
    .hm-settings svg { width: 20px; height: 20px; }
    /* --hm-days задаётся инлайн из JS (число дней в месяце). На десктопе — все дни сжаты в ширину
-      контейнера (1fr each); на мобильном @media ниже переопределяет фиксированной шириной колонки,
-      чтобы карта скроллилась горизонтально вместо сжатия. Дни идут в порядке: сегодня первым (см.
-      renderMonthView) — клетки всегда видны, без скрытия/раскрытия. */
-   .hm-cells { display: grid; gap: 2px; grid-template-columns: repeat(var(--hm-days, 31), 1fr); }
+      контейнера (1fr each), скролла нет. На мобильном @media ниже даёт клетке фиксированную ширину
+      (--cell-w) и делает САМУ `.hm-cells` скроллящейся горизонтально — НЕ общий контейнер #heatmap,
+      как было раньше. Название привычки (.hm-row-head) стоит отдельной строкой НАД .hm-cells и не
+      участвует в этом скролле вообще, поэтому не может «плыть» при пролистывании дней (юзер
+      сообщил об этом как о баге в старой версии с общим скроллом + JS-компенсацией — см. HANDOFF.md
+      §18). Пока задача сегодня не отмечена — .hm-cells скрыта (см. .hm-row-pending ниже), только
+      название/шапка видны (чек-лист); после отметки — раскрывается. */
+   .hm-cells { display: grid; gap: 2px; grid-template-columns: repeat(var(--hm-days, 31), 1fr); overflow: hidden; max-height: 200px; opacity: 1; transition: max-height 0.4s ease 0.15s, opacity 0.3s ease 0.15s; }
+   .hm-row-pending .hm-cells { max-height: 0; opacity: 0; pointer-events: none; transition: max-height 0.3s ease, opacity 0.15s ease; }
    .hm-cell { aspect-ratio: 1; background: #ececec; border-radius: 2px; cursor: pointer; transition: background 0.15s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
    .hm-wd { font-size: 7px; line-height: 1; color: #111; pointer-events: none; letter-spacing: -0.5px; }
    .hm-cell.done .hm-wd { color: #111; }
@@ -815,6 +843,7 @@ canvas { width: 100%; height: 150px; }
    .auth-modal.mandatory .auth-close { display: none; } /* принудительный вход после заставки — не закрыть мимо */
    .auth-title { font-size: 18px; font-weight: 600; color: #111; margin: 0 0 18px; }
    .auth-checking { font-size: 14px; color: #999; text-align: center; padding: 30px 0; }
+   #auth-checking-text { white-space: pre-line; }
    .auth-checking #auth-retry-btn { margin-top: 16px; }
    .auth-input { width: 100%; height: 40px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 0 12px; font-size: 15px; font-family: inherit; color: #111; outline: none; margin-bottom: 10px; }
    .auth-input:focus { border-color: #111; }
@@ -908,21 +937,15 @@ canvas { width: 100%; height: 150px; }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
        /* Тепловая карта на мобильном: горизонтальный скролл вместо сжатия всех дней в экран.
-          Название привычки — «прилипшая» строка СВЕРХУ (как в desktop-варианте, а не слева),
-          сами дни скроллятся под ней. Ширина клетки (--cell-w) и ширина шапки (--head-w) считаются
-          в JS через clientWidth так, чтобы влезало ровно 7 колонок. Стартовый scrollLeft (сегодня
-          первой видимой) выставляется в JS. */
-       .heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-       /* position:sticky тут ненадёжен (ломается после ~100-200px скролла в связке с calc()-шириной
-          колонок и вложенным flex — проверено эмпирически). Прилипание сделано через JS:
-          transform:translateX(scrollLeft), см. syncHeatmapHeads() в habbittracker.js. Направление
-          строки (flex-direction:column) и раскладка label/count (space-between) наследуются из
-          базового .hm-row/.hm-row-head — на мобильном переопределяем только ширину шапки. */
-       .hm-row-head { position: relative; z-index: 2; background: #fff; width: var(--head-w, 100%); }
+          КАЖДАЯ строка скроллится НЕЗАВИСИМО — .hm-cells сама по себе overflow-x:auto, а не общий
+          скролл на #heatmap. Название привычки (.hm-row-head) — обычная статичная строка НАД
+          .hm-cells, никогда не участвует в скролле, поэтому физически не может сдвинуться при
+          пролистывании дней (в старой версии был общий скролл + JS-компенсация transform на шапке,
+          юзер сообщил, что название всё равно «плыло» — см. HANDOFF.md §18). Ширина клетки
+          (--cell-w) считается в JS через clientWidth так, чтобы влезало ровно 7 колонок. */
+       .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), var(--cell-w, 44px)); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+       .hm-cells::-webkit-scrollbar { display: none; }
        .hm-label { min-width: 0; } /* даёт ellipsis сработать при нехватке места рядом со счётчиком */
-       /* --cell-w считается в JS через clientWidth (НЕ 100vw — на iOS Safari 100vw шире реального
-          вьюпорта, ломало верстку). 44px — запасной вариант, если JS почему-то не отработал. */
-       .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), var(--cell-w, 44px)); }
    }
    @media (max-width: 400px) {
        .training-menu { grid-template-columns: 1fr; }

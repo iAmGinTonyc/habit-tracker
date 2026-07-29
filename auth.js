@@ -53,17 +53,34 @@ function waitForSb(triesLeft) {
     })(triesLeft);
   });
 }
+// Причина последней неудачной попытки входа — читается в refresh(), чтобы показать её прямо в
+// UI (не только в консоли), т.к. юзер сообщил «всё ещё не могу зайти», а без текста причины
+// невозможно понять, это HMAC/бот-токен/сеть/что-то ещё, не имея доступа к логам его Supabase.
+let lastTelegramSignInError = null;
 async function telegramSignIn(initData) {
   const ready = await waitForSb();
-  if (!ready) return { ok: false, error: 'sb_timeout' };
+  if (!ready) { lastTelegramSignInError = 'sb_timeout'; return { ok: false, error: 'sb_timeout' }; }
   try {
     const { data, error } = await sb.functions.invoke('telegram-auth', { body: { initData } });
-    if (error || !data || data.error) return { ok: false, error: (error && error.message) || (data && data.error) || 'invoke_failed' };
+    if (error || !data || data.error) {
+      // Как и в purchasePlan — error.message тут почти всегда общее "Edge Function returned a
+      // non-2xx status code" (см. FUNCTION_ERROR_MESSAGES ниже), реальный код лежит в теле ответа
+      // (error.context), а не в message. Достаём его, иначе не видно, ПОЧЕМУ вход не прошёл —
+      // именно это мешало диагностировать баг «всё ещё не могу зайти через телеграм».
+      let code = data && data.error;
+      let detail = data && data.detail;
+      if (error && !code) { const errBody = await readFunctionErrorBody(error); if (errBody) { code = errBody.error; detail = errBody.detail; } }
+      const reason = FUNCTION_ERROR_MESSAGES[code] || detail || code || (error && error.message) || 'invoke_failed';
+      console.warn('telegramSignIn: ошибка telegram-auth —', code || '(нет кода)', '/', reason);
+      lastTelegramSignInError = reason;
+      return { ok: false, error: reason };
+    }
     // ПРИМЕЧАНИЕ: type здесь должен соответствовать типу, с которым бэкенд вызвал generateLink
     // ('magiclink'). Если после деплоя verifyOtp падает с ошибкой типа — свериться с актуальной
     // документацией supabase-js (API этого угла менялась между версиями).
     const { error: otpErr } = await sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' });
-    if (otpErr) return { ok: false, error: otpErr.message };
+    if (otpErr) { console.warn('telegramSignIn: verifyOtp упал —', otpErr.message); lastTelegramSignInError = otpErr.message; return { ok: false, error: otpErr.message }; }
+    lastTelegramSignInError = null;
     await refresh(); // подтягивает профиль/семью в UI, как после обычного логина
     // Открыт по реферальной ссылке (t.me/.../LiveLife?startapp=CODE) — start_param пришёл через
     // initData, Edge Function его просто передала обратно. send_invite должен идти С КЛИЕНТА
@@ -74,6 +91,7 @@ async function telegramSignIn(initData) {
     }
     return { ok: true, subscription: data.subscription };
   } catch (e) {
+    lastTelegramSignInError = String(e);
     return { ok: false, error: String(e) };
   }
 }
@@ -159,8 +177,11 @@ async function refresh() {
     // Раньше тут навсегда оставался текст «Входим…» — если сессия так и не появилась (сеть,
     // ошибка Edge Function telegram-auth и т.п.), юзер видел бесконечный спиннер без выхода
     // (баг, на который пожаловался юзер). Теперь — понятная ошибка + кнопка повторить.
+    // Причина (lastTelegramSignInError, см. telegramSignIn) показывается прямо тут — юзер сможет
+    // прислать её текстом, не открывая консоль разработчика.
     $('auth-checking').style.display = 'block';
-    $('auth-checking-text').textContent = 'Не удалось подтвердить вход через Telegram. Проверь соединение и попробуй ещё раз.';
+    $('auth-checking-text').textContent = 'Не удалось подтвердить вход через Telegram. Проверь соединение и попробуй ещё раз.'
+      + (lastTelegramSignInError ? `\n\nПричина: ${lastTelegramSignInError}` : '');
     $('auth-retry-btn').style.display = 'block';
     return;
   }
@@ -267,9 +288,14 @@ function selectPlan(plan) {
 // теле ответа (error.context — исходный Response), а не в error.message.
 const FUNCTION_ERROR_MESSAGES = {
   not_authenticated: 'Не удалось подтвердить вход через Telegram. Открой профиль (значок сверху), дождись, пока пропадёт «Входим через Telegram…», и попробуй снова',
-  server_misconfigured_no_bot_token: 'Оплата временно недоступна на сервере',
+  server_misconfigured_no_bot_token: 'Сервер входа не настроен (нет токена бота)',
   bad_plan: 'Неверный план подписки',
   telegram_api_error: 'Telegram отклонил создание счёта',
+  // Коды из telegram-auth/index.ts:
+  no_init_data: 'Telegram не передал данные для входа',
+  invalid_init_data: 'Telegram не подтвердил подлинность данных входа (устаревшая или повреждённая ссылка)',
+  create_user_failed: 'Не удалось создать аккаунт на сервере',
+  link_failed: 'Не удалось выдать вход на сервере',
   unexpected: 'Непредвиденная ошибка сервера',
 };
 async function readFunctionErrorBody(error) {

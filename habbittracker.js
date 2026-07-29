@@ -332,10 +332,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!screen || !carousel || !dots || !confirmBtn) { onDone(null); return; }
 
         let selectedId = null;
-        carousel.innerHTML = ONBOARDING_CATEGORIES.map(cat => `
-            <div class="cat-card" data-id="${cat.id}">
+        // Карточки чередуются чёрная/белая (как «переворот» страницы при пролистывании — по
+        // референсу юзера): чётные — тёмные (.cat-card-dark), нечётные — светлые (.cat-card-light),
+        // цвет текста наследуется от варианта. Название сферы — «эйбров»-лейбл + крупный заголовок,
+        // анимируются въездом при попадании карточки в центр (см. .cat-card.active ниже).
+        carousel.innerHTML = ONBOARDING_CATEGORIES.map((cat, i) => `
+            <div class="cat-card ${i % 2 === 0 ? 'cat-card-dark' : 'cat-card-light'}${i === 0 ? ' active' : ''}" data-id="${cat.id}">
                 <div class="cat-card-inner">
-                    <div class="cat-card-name">${cat.name}</div>
+                    <div class="cat-card-heading">
+                        <span class="cat-card-eyebrow">Категория ${i + 1} / ${ONBOARDING_CATEGORIES.length}</span>
+                        <div class="cat-card-name">${cat.name}</div>
+                    </div>
                     <ul class="cat-card-tasks">${cat.tasks.map(t => `<li>${t.text}</li>`).join('')}</ul>
                 </div>
             </div>`).join('');
@@ -357,10 +364,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Точки-индикаторы карусели — подсвечиваем ближайшую к центру видимую карточку при скролле
+        // Точки-индикаторы + активная карточка (для анимации заголовка) — подсвечиваем ближайшую
+        // к центру видимую карточку при скролле. classList.toggle не трогает DOM, если значение не
+        // поменялось, поэтому CSS-анимация заголовка не перезапускается на каждый scroll-тик — только
+        // когда реально сменилась активная карточка.
         carousel.onscroll = () => {
             const idx = Math.round(carousel.scrollLeft / carousel.clientWidth);
             dots.querySelectorAll('.cat-picker-dot').forEach((d, i) => d.classList.toggle('active', i === idx));
+            carousel.querySelectorAll('.cat-card').forEach((c, i) => c.classList.toggle('active', i === idx));
         };
 
         confirmBtn.onclick = () => {
@@ -814,9 +825,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // document.documentElement.clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw
             // надёжно шире реального видимого вьюпорта (известный баг), из-за чего верстка вылезала
             // за экран. clientWidth свободен от этой особенности. offset = 44 (паддинг
-            // #dashboard-screen, 22px×2) — колонка названия сюда больше не входит: название теперь
-            // СВЕРХУ (своя строка), а не сбоку, поэтому не отнимает горизонтальное место у клеток
-            // (см. HANDOFF.md §15 — раньше было -130, юзер попросил перенести подпись наверх).
+            // #dashboard-screen, 22px×2).
             const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
             const visibleW = isMobileHeatmap ? Math.max(document.documentElement.clientWidth - 44, 196) : null;
             const cellW = isMobileHeatmap ? Math.max(28, visibleW / 7) : null;
@@ -846,10 +855,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 let subtextHtml = '';
                 if (h.reminderTime) subtextHtml += `<span>${h.reminderTime}</span>`;
                 if (h.triggerText) subtextHtml += `<span>я сделаю после: ${h.triggerText}</span>`;
+                // Пока задача сегодня не отмечена — строка свёрнута до чек-листа (название сверху,
+                // клетки скрыты под ним); отмечаешь — клетки раскрываются. См. HANDOFF.md §15/§18.
+                const pendingToday = !h.completed;
                 const rowEl = document.createElement('div');
-                rowEl.className = 'hm-row';
+                rowEl.className = `hm-row${pendingToday ? ' hm-row-pending' : ''}`;
                 rowEl.innerHTML = `
-                    <div class="hm-row-head"${visibleW ? ` style="--head-w:${visibleW}px"` : ''}>
+                    <div class="hm-row-head">
                         <div class="hm-row-headline">
                             <span class="hm-label${h.completed ? ' done' : ''}" title="${h.text}">${h.text}</span>
                             <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
@@ -860,27 +872,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 hm.appendChild(rowEl);
             });
 
-            // Мобильная адаптация: тепловая карта скроллится горизонтально (в CSS — ровно 7 клеток
-            // видно за раз, см. .hm-cells в @media). Название привычки должно оставаться на месте —
-            // position:sticky тут ненадёжен (ломается после ~150px скролла в связке с calc()-шириной
-            // колонок и вложенным flex, проверено эмпирически), поэтому прилипание сделано вручную:
-            // на каждый scroll сдвигаем .hm-row-head обратно через transform, компенсируя scrollLeft.
-            function syncHeatmapHeads() {
-                const offset = hm.scrollLeft;
-                hm.querySelectorAll('.hm-row-head').forEach(head => { head.style.transform = `translateX(${offset}px)`; });
-            }
-            if (isMobileHeatmap) hm.onscroll = syncHeatmapHeads;
-            if (isMobileHeatmap) syncHeatmapHeads(); // применить сразу, не дожидаясь события scroll
+            // Мобильная адаптация: КАЖДАЯ строка скроллится горизонтально независимо (`.hm-cells`
+            // сама по себе `overflow-x:auto`, см. CSS) — название привычки (`.hm-row-head`) стоит
+            // ВЫШЕ и вообще не участвует ни в каком скролле, поэтому физически не может сдвинуться.
+            // Раньше был общий скролл на #heatmap + ручная JS-компенсация transform:translateX на
+            // заголовке (аналог sticky) — юзер сообщил, что название всё равно «плыло» при скролле
+            // клеток (грабли, см. HANDOFF.md §18); независимый скролл на уровне строки убирает саму
+            // необходимость в этой компенсации.
 
             // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {
                 const settingsIcon = e.target.closest('.hm-settings');
                 if (settingsIcon) { openHabitSettings(+settingsIcon.dataset.idx); return; }
-                // Клик по шапке строки (название/метаданные, кроме «⋯») — быстрый способ отметить
-                // сегодняшний день, эквивалент клику по клетке «сегодня» под ней.
-                const headline = e.target.closest('.hm-row-head');
-                if (headline && !e.target.closest('.hm-cell')) {
-                    const todayCell = headline.closest('.hm-row').querySelector('.hm-cell.today');
+                // Пока сегодня не отмечено, клетки скрыты за «шапкой»-чек-листом (см. рендер выше) —
+                // клик по шапке (кроме «⋯») эквивалентен клику по сегодняшней клетке под ней.
+                const pendingHead = e.target.closest('.hm-row-pending .hm-row-head');
+                if (pendingHead) {
+                    const todayCell = pendingHead.closest('.hm-row').querySelector('.hm-cell.today');
                     if (todayCell) todayCell.click();
                     return;
                 }
@@ -902,6 +910,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     const label = rowEl.querySelector('.hm-label');
                     if (label) label.classList.toggle('done', now);
+                    // Отмечена — перечёркиваем, ждём, пока анимация доиграет, и только потом
+                    // раскрываем клетки (снимаем hm-row-pending, CSS сама анимирует reveal).
+                    // Сняли отметку обратно — сворачиваем сразу, без задержки.
+                    if (now) setTimeout(() => rowEl.classList.remove('hm-row-pending'), 450);
+                    else rowEl.classList.add('hm-row-pending');
                 }
                 saveProgress();
                 // точечно обновляем мету строки, сводку месяца (с анимацией) и колесо жизни —
