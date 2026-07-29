@@ -332,15 +332,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!screen || !carousel || !dots || !confirmBtn) { onDone(null); return; }
 
         let selectedId = null;
-        // Карточки чередуются чёрная/белая (как «переворот» страницы при пролистывании — по
-        // референсу юзера): чётные — тёмные (.cat-card-dark), нечётные — светлые (.cat-card-light),
-        // цвет текста наследуется от варианта. Название сферы — «эйбров»-лейбл + крупный заголовок,
-        // анимируются въездом при попадании карточки в центр (см. .cat-card.active ниже).
+        // Карточка — прямоугольник со скруглёнными углами на чёрном фоне экрана; по умолчанию белая
+        // с чёрным текстом, при выборе (.selected) инвертируется в чёрную с белым текстом (см. CSS).
+        // Заголовок анимируется въездом при попадании карточки в центр (см. .cat-card.active ниже).
         carousel.innerHTML = ONBOARDING_CATEGORIES.map((cat, i) => `
-            <div class="cat-card ${i % 2 === 0 ? 'cat-card-dark' : 'cat-card-light'}${i === 0 ? ' active' : ''}" data-id="${cat.id}">
+            <div class="cat-card${i === 0 ? ' active' : ''}" data-id="${cat.id}">
                 <div class="cat-card-inner">
                     <div class="cat-card-heading">
-                        <span class="cat-card-eyebrow">Категория ${i + 1} / ${ONBOARDING_CATEGORIES.length}</span>
                         <div class="cat-card-name">${cat.name}</div>
                     </div>
                     <ul class="cat-card-tasks">${cat.tasks.map(t => `<li>${t.text}</li>`).join('')}</ul>
@@ -2471,13 +2469,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // Family дешевле Personal именно за счёт нескольких человек — покупать его в одиночку
     // бессмысленно, поэтому пока в семье (window.familyMemberCount, см. auth.js renderFamily) никого
-    // нет, кнопка недоступна и явно об этом сообщает.
+    // нет, кнопка вообще не показывается (а не просто дизейблится).
     function updatePromodeFamilyButton() {
         const btn = document.getElementById('promode-buy-family-btn');
         if (!btn) return;
         const hasFamily = (window.familyMemberCount || 0) > 0;
-        btn.disabled = !hasFamily;
-        btn.textContent = hasFamily ? 'Купить Family' : 'Купить Family недоступно';
+        btn.style.display = hasFamily ? '' : 'none';
     }
     const promodeCloseBtn = document.getElementById('promode-close');
     if (promodeCloseBtn) promodeCloseBtn.addEventListener('click', closeProModePaywall);
@@ -2490,7 +2487,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const promodeBuyFamilyBtn = document.getElementById('promode-buy-family-btn');
     if (promodeBuyFamilyBtn) promodeBuyFamilyBtn.addEventListener('click', () => {
         if (!(window.familyMemberCount || 0)) return; // недоступно — см. updatePromodeFamilyButton
-        const size = Math.max(2, Math.min(10, Number(document.getElementById('promode-family-size').value) || 2));
+        // Размер семьи = сам юзер + принятые приглашения (window.familyMemberCount, см. auth.js
+        // renderFamily) — больше не спрашиваем числом вручную, считаем от реального состава семьи.
+        const size = Math.max(2, Math.min(10, (window.familyMemberCount || 0) + 1));
         if (typeof window.buyFamilyPlanOneClick === 'function') window.buyFamilyPlanOneClick(size, 'promode-msg', 'promode-buy-family-btn');
     });
     const promodeInviteBtn = document.getElementById('promode-invite-btn');
