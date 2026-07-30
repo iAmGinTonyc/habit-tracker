@@ -827,22 +827,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
             const visibleW = isMobileHeatmap ? Math.max(document.documentElement.clientWidth - 44, 196) : null;
             const cellW = isMobileHeatmap ? Math.max(28, visibleW / 7) : null;
-            // Сегодня — ПЕРВАЯ клетка слайдера (не нужно скроллить, чтобы его найти): для текущего
-            // месяца дни переупорядочены — сегодня, затем прошлые дни (по убыванию), затем будущие
-            // (по возрастанию, серые/некликабельные). Для чужого месяца порядок остаётся календарным.
+            // Клетки — ВСЕГДА в календарном порядке 1..последний день месяца (без переупорядочивания):
+            // так последняя клетка строки — это реально последний день месяца с верным днём недели
+            // (юзер прислал пример: если месяц заканчивается в пятницу, последняя клетка — пятница).
+            // Для ТЕКУЩЕГО месяца после рендера скроллим каждую строку так, чтобы сегодняшняя клетка
+            // была первой видимой (см. ниже, после forEach) — прошлые дни остаются левее, куда можно
+            // доскроллить назад; для прошлых месяцев скролл не трогаем (начало — 1 число).
             const now = new Date();
             const isCurrentMonth = y === now.getFullYear() && m === now.getMonth();
-            let orderedDayList = dayList;
-            if (isCurrentMonth) {
-                const td = now.getDate();
-                const past = []; for (let d = td - 1; d >= 1; d--) past.push(d);
-                const future = []; for (let d = td + 1; d <= days; d++) future.push(d);
-                orderedDayList = [td, ...past, ...future];
-            }
             habits.forEach((h, hIdx) => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
-                const cells = orderedDayList.map(d => {
+                const cells = dayList.map(d => {
                     const k = fdt(y, m, d);
                     const done = isDone(h.uid, k);
                     const future = k > tKey;
@@ -853,9 +849,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 let subtextHtml = '';
                 if (h.reminderTime) subtextHtml += `<span>${h.reminderTime}</span>`;
                 if (h.triggerText) subtextHtml += `<span>я сделаю после: ${h.triggerText}</span>`;
-                // Пока задача сегодня не отмечена — строка свёрнута до чек-листа (название сверху,
-                // клетки скрыты под ним); отмечаешь — клетки раскрываются. См. HANDOFF.md §15/§18.
-                const pendingToday = !h.completed;
+                // Прогрессивное раскрытие («сделай сегодня» — чек-лист поверх клеток, пока не
+                // отмечено) имеет смысл только для ТЕКУЩЕГО месяца: в прошлом месяце «сегодня» не
+                // существует — клетки должны быть сразу доступны для правок задним числом, без
+                // скрытия за шапкой. См. HANDOFF.md §15/§18 (сам механизм) — здесь только его область
+                // действия сузили до текущего месяца по просьбе юзера.
+                const pendingToday = isCurrentMonth && !h.completed;
                 const rowEl = document.createElement('div');
                 rowEl.className = `hm-row${pendingToday ? ' hm-row-pending' : ''}`;
                 rowEl.innerHTML = `
@@ -877,6 +876,23 @@ document.addEventListener('DOMContentLoaded', () => {
             // заголовке (аналог sticky) — юзер сообщил, что название всё равно «плыло» при скролле
             // клеток (грабли, см. HANDOFF.md §18); независимый скролл на уровне строки убирает саму
             // необходимость в этой компенсации.
+            if (isCurrentMonth) {
+                // Сегодняшняя клетка — первая ВИДИМАЯ в каждой строке (не первая в разметке — порядок
+                // остался календарным, см. выше), чтобы не пришлось скроллить, чтобы её найти. Прошлые
+                // дни остаются левее — доскроллить назад по-прежнему можно (см. запрос юзера).
+                // scrollIntoView({inline:'start'}) тут не подходит: .hm-cells вложена в несколько
+                // скролл-контейнеров, и браузер выравнивает «в среднем» между ними, а не строго по
+                // левому краю своего контейнера (проверено — оставался сдвиг на несколько клеток).
+                // Считаем позицию вручную относительно ПЕРВОЙ клетки строки — их offsetLeft в одной
+                // системе координат (общий offsetParent), в отличие от сравнения offsetLeft напрямую
+                // с scrollLeft.
+                hm.querySelectorAll('.hm-row').forEach(row => {
+                    const cellsBox = row.querySelector('.hm-cells');
+                    const firstCell = cellsBox.querySelector('.hm-cell');
+                    const todayCell = cellsBox.querySelector('.hm-cell.today');
+                    if (cellsBox && firstCell && todayCell) cellsBox.scrollLeft = todayCell.offsetLeft - firstCell.offsetLeft;
+                });
+            }
 
             // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {

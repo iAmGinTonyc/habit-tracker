@@ -61,7 +61,15 @@ async function telegramSignIn(initData) {
   const ready = await waitForSb();
   if (!ready) { lastTelegramSignInError = 'sb_timeout'; return { ok: false, error: 'sb_timeout' }; }
   try {
-    const { data, error } = await sb.functions.invoke('telegram-auth', { body: { initData } });
+    // Оба вызова ниже — sb.functions.invoke и sb.auth.verifyOtp — раньше не были ничем ограничены
+    // по времени. Есть задокументированный баг окружения (см. коммент у boot()): самый первый
+    // sb.auth.* вызов может зависнуть навсегда (проблема с navigator.locks в самом supabase-js/
+    // браузере, не в нашем коде) — без таймаута юзер застревал на «Входим через Telegram…»
+    // НАВСЕГДА, без текста ошибки и кнопки повтора (репортнутый баг «не грузит, не открыть
+    // профиль» после жалобы юзера 30.07.2026).
+    const invokeRes = await withTimeout(sb.functions.invoke('telegram-auth', { body: { initData } }), 8000);
+    if (invokeRes === TIMED_OUT) { lastTelegramSignInError = 'Сервер входа не ответил за 8 секунд (сеть/бэкенд)'; return { ok: false, error: lastTelegramSignInError }; }
+    const { data, error } = invokeRes;
     if (error || !data || data.error) {
       // Как и в purchasePlan — error.message тут почти всегда общее "Edge Function returned a
       // non-2xx status code" (см. FUNCTION_ERROR_MESSAGES ниже), реальный код лежит в теле ответа
@@ -78,7 +86,9 @@ async function telegramSignIn(initData) {
     // ПРИМЕЧАНИЕ: type здесь должен соответствовать типу, с которым бэкенд вызвал generateLink
     // ('magiclink'). Если после деплоя verifyOtp падает с ошибкой типа — свериться с актуальной
     // документацией supabase-js (API этого угла менялась между версиями).
-    const { error: otpErr } = await sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' });
+    const otpRes = await withTimeout(sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' }), 8000);
+    if (otpRes === TIMED_OUT) { lastTelegramSignInError = 'Подтверждение сессии зависло (verifyOtp не ответил за 8 секунд)'; return { ok: false, error: lastTelegramSignInError }; }
+    const { error: otpErr } = otpRes;
     if (otpErr) { console.warn('telegramSignIn: verifyOtp упал —', otpErr.message); lastTelegramSignInError = otpErr.message; return { ok: false, error: otpErr.message }; }
     lastTelegramSignInError = null;
     await refresh(); // подтягивает профиль/семью в UI, как после обычного логина
@@ -106,8 +116,17 @@ async function retryTelegramSignIn() {
   btn.style.display = 'none';
   try {
     const initData = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
-    if (initData) await telegramSignIn(initData);
-    else await refresh();
+    if (initData) {
+      // telegramSignIn сам зовёт refresh() только при УСПЕХЕ — если попытка снова провалилась
+      // (см. таймауты внутри telegramSignIn), без явного refresh() тут юзер остался бы на тексте
+      // «Входим…», выставленном строкой выше, с невидимой (display:none) кнопкой повтора — то же
+      // самое зависание, только после уже нажатой попытки. Зовём refresh() всегда, она сама
+      // покажет актуальное состояние (профиль либо «не удалось / причина», см. lastTelegramSignInError).
+      await telegramSignIn(initData);
+      await refresh();
+    } else {
+      await refresh();
+    }
   } finally {
     btn.disabled = false;
   }
@@ -159,47 +178,60 @@ async function refresh() {
   $('auth-form-wrap').style.display = 'none';
   $('auth-profile').style.display = 'none';
 
-  let session = null;
-  const r = await withTimeout(sb.auth.getSession(), 4000);
-  if (r === TIMED_OUT) {
-    console.warn('⚠️ sb.auth.getSession() завис — читаю сессию напрямую из localStorage');
-    session = readStoredSession();
-  } else {
-    session = r.data.session;
-  }
-  const inUser = session && session.user;
-  $('auth-form-wrap').style.display = 'none';
-  $('auth-profile').style.display = inUser ? 'block' : 'none';
-  $('profile-btn').classList.toggle('on', !!inUser);
-  me = inUser ? session.user.id : null;
-  myEmail = inUser ? (session.user.email || '') : null;
-  if (!inUser) {
-    // Раньше тут навсегда оставался текст «Входим…» — если сессия так и не появилась (сеть,
-    // ошибка Edge Function telegram-auth и т.п.), юзер видел бесконечный спиннер без выхода
-    // (баг, на который пожаловался юзер). Теперь — понятная ошибка + кнопка повторить.
-    // Причина (lastTelegramSignInError, см. telegramSignIn) показывается прямо тут — юзер сможет
-    // прислать её текстом, не открывая консоль разработчика.
+  // Всё тело — в try/catch: раньше необработанное исключение ЛЮБОЙ строки ниже молча роняло
+  // промис (boot() зовёт refresh() без .catch), и юзер навсегда застревал ровно на тексте
+  // «Входим через Telegram…», выставленном строкой выше — без ошибки и кнопки повтора (репорт
+  // юзера 30.07.2026, скриншот именно с этим текстом и без кнопки). Теперь падение тоже ведёт
+  // в понятное состояние «не удалось / причина / повторить», а не в тишину.
+  try {
+    let session = null;
+    const r = await withTimeout(sb.auth.getSession(), 4000);
+    if (r === TIMED_OUT) {
+      console.warn('⚠️ sb.auth.getSession() завис — читаю сессию напрямую из localStorage');
+      session = readStoredSession();
+    } else {
+      session = r.data.session;
+    }
+    const inUser = session && session.user;
+    $('auth-form-wrap').style.display = 'none';
+    $('auth-profile').style.display = inUser ? 'block' : 'none';
+    $('profile-btn').classList.toggle('on', !!inUser);
+    me = inUser ? session.user.id : null;
+    myEmail = inUser ? (session.user.email || '') : null;
+    if (!inUser) {
+      // Раньше тут навсегда оставался текст «Входим…» — если сессия так и не появилась (сеть,
+      // ошибка Edge Function telegram-auth и т.п.), юзер видел бесконечный спиннер без выхода
+      // (баг, на который пожаловался юзер). Теперь — понятная ошибка + кнопка повторить.
+      // Причина (lastTelegramSignInError, см. telegramSignIn) показывается прямо тут — юзер сможет
+      // прислать её текстом, не открывая консоль разработчика.
+      $('auth-checking').style.display = 'block';
+      $('auth-checking-text').textContent = 'Не удалось подтвердить вход через Telegram. Проверь соединение и попробуй ещё раз.'
+        + (lastTelegramSignInError ? `\n\nПричина: ${lastTelegramSignInError}` : '');
+      $('auth-retry-btn').style.display = 'block';
+      return;
+    }
+    $('auth-checking').style.display = 'none';
+    $('prof-email').textContent = tgDisplayId();
+    $('prof-id').textContent = '…';
+    // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
+    const pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+    if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; }
+    else {
+      const { data, error } = pr;
+      $('prof-id').textContent = (!error && data && data.invite_id) ? data.invite_id : 'нет профиля — запусти SQL в Supabase';
+      myDisplayName = (!error && data && data.display_name) ? data.display_name : null;
+      $('prof-name-input').value = myDisplayName || defaultName();
+    }
+    syncMyStats();  // отправить свою сводку в облако
+    loadFamily();   // входящие приглашения + семья
+    loadSubscription(); // статус триала/подписки
+  } catch (e) {
+    console.error('refresh() упал —', e);
     $('auth-checking').style.display = 'block';
     $('auth-checking-text').textContent = 'Не удалось подтвердить вход через Telegram. Проверь соединение и попробуй ещё раз.'
-      + (lastTelegramSignInError ? `\n\nПричина: ${lastTelegramSignInError}` : '');
+      + `\n\nПричина: ${String(e && e.message || e)}`;
     $('auth-retry-btn').style.display = 'block';
-    return;
   }
-  $('auth-checking').style.display = 'none';
-  $('prof-email').textContent = tgDisplayId();
-  $('prof-id').textContent = '…';
-  // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
-  const pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
-  if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; }
-  else {
-    const { data, error } = pr;
-    $('prof-id').textContent = (!error && data && data.invite_id) ? data.invite_id : 'нет профиля — запусти SQL в Supabase';
-    myDisplayName = (!error && data && data.display_name) ? data.display_name : null;
-    $('prof-name-input').value = myDisplayName || defaultName();
-  }
-  syncMyStats();  // отправить свою сводку в облако
-  loadFamily();   // входящие приглашения + семья
-  loadSubscription(); // статус триала/подписки
 }
 
 const defaultName = () => {
