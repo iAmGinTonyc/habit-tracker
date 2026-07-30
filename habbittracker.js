@@ -913,6 +913,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Сняли отметку обратно — сворачиваем сразу, без задержки.
                     if (now) setTimeout(() => rowEl.classList.remove('hm-row-pending'), 450);
                     else rowEl.classList.add('hm-row-pending');
+                    // Леджер для скидки (см. auth.js syncTodayCompletion / db/phase7_…sql) — только
+                    // за СЕГОДНЯ, никогда не за прошлые дни (см. цикл выше по key === tKey).
+                    if (window.syncTodayCompletion) window.syncTodayCompletion(habits.filter(x => isDone(x.uid, tKey)).length);
                 }
                 saveProgress();
                 // точечно обновляем мету строки, сводку месяца (с анимацией) и колесо жизни —
@@ -1282,15 +1285,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dashState.foodLog) dashState.foodLog = {};
         const tKey = todayKey();
         const today = dashState.foodLog[tKey] || {};
-        // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма,
-        // в теле ячейки — что съел.
+        // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма
+        // (тот же кнопочный time-scroll-container, что и «во сколько лёг/встал» в чек-апе — см.
+        // renderTimeScroll — вместо нативного <input type="time">), ниже — что съел.
         const cells = MEALS.map(meal => {
             const rec = today[meal.id] || {};
             return `<div class="food-cell" data-meal="${meal.id}">
                 <div class="food-cell-head">
                     <span class="food-meal-name">${meal.name}</span>
-                    <input type="time" class="food-time" data-field="time" value="${escAttr(rec.time)}">
                 </div>
+                <div class="time-scroll-container food-time" data-meal="${meal.id}"></div>
                 <input type="text" class="food-text" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
             </div>`;
         }).join('');
@@ -1300,21 +1304,22 @@ document.addEventListener('DOMContentLoaded', () => {
             <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
             <div class="food-week" id="food-week"></div>`;
 
+        function setMealField(mealId, field, value) {
+            if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
+            if (!dashState.foodLog[tKey][mealId]) dashState.foodLog[tKey][mealId] = {};
+            dashState.foodLog[tKey][mealId][field] = value;
+            const r = dashState.foodLog[tKey][mealId];
+            if (!r.time && !r.text) delete dashState.foodLog[tKey][mealId];           // пустой приём — убрать
+            if (!Object.keys(dashState.foodLog[tKey]).length) delete dashState.foodLog[tKey]; // пустой день — убрать
+            saveProgress();
+            renderFoodWeek();
+        }
+
         // автосохранение по вводу (перерисовываем только недельный список, инпуты не трогаем)
         root.querySelectorAll('.food-cell').forEach(cellEl => {
             const mealId = cellEl.dataset.meal;
-            cellEl.querySelectorAll('input').forEach(inp => {
-                inp.addEventListener('input', () => {
-                    if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
-                    if (!dashState.foodLog[tKey][mealId]) dashState.foodLog[tKey][mealId] = {};
-                    dashState.foodLog[tKey][mealId][inp.dataset.field] = inp.value;
-                    const r = dashState.foodLog[tKey][mealId];
-                    if (!r.time && !r.text) delete dashState.foodLog[tKey][mealId];           // пустой приём — убрать
-                    if (!Object.keys(dashState.foodLog[tKey]).length) delete dashState.foodLog[tKey]; // пустой день — убрать
-                    saveProgress();
-                    renderFoodWeek();
-                });
-            });
+            renderTimeScroll(cellEl.querySelector('.food-time'), (today[mealId] || {}).time || '', (label) => setMealField(mealId, 'time', label));
+            cellEl.querySelector('.food-text').addEventListener('input', (e) => setMealField(mealId, 'text', e.target.value));
         });
         renderFoodWeek();
     }
@@ -1490,25 +1495,31 @@ document.addEventListener('DOMContentLoaded', () => {
     //   ОНБОРДИНГ: КОАЧМАРКИ + КОНТЕКСТНЫЕ ПОДСКАЗКИ
     // =========================================
     const DAY_TOUR = [
-        { text: 'Привет! Это трекер привычек и твоего состояния. Покажу за 20 секунд, что где.' },
-        { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID для приглашений. Добавляй друзей и смотри их успехи.' },
-        { target: () => document.querySelector('.hm-cell.today'), text: 'Нажимай по сегодняшней клетке, чтобы отметить привычку за день. За регулярность копится серия.' },
-        { target: () => document.querySelector('.hm-settings'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.' },
+        { text: 'Привет! Это трекер привычек и твоего состояния. 14 дней — бесплатно, дальше нужна подписка (либо бесплатные недели за приглашённых друзей). Покажу за 20 секунд, что где.' },
+        { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID, статус подписки, правила скидки и бонусных недель за друзей. Добавляй друзей и смотри их успехи.' },
+        // Пока сегодняшний день не отмечен, клетки истории скрыты за строкой-«шапкой» (см.
+        // .hm-row-pending в CSS/renderMonthView) — целимся в саму строку (.hm-row-head), а не в
+        // .hm-cell.today, который до первой отметки физически не виден и не кликабелен.
+        { target: () => document.querySelector('.hm-row-head'), text: 'Нажми на привычку в списке, чтобы отметить её на сегодня — откроются клетки истории за месяц. За регулярность копится серия.', requiresHabits: true },
+        { target: () => document.querySelector('.hm-settings'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
         { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
         { target: () => document.getElementById('life-wheel-month'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
-        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно по подписке.', feature: 'psychoMode' },
-        { target: () => document.querySelector('.view-switcher'), text: 'Задачи — твой список и история по дням. Чек-ап — быстро отметь сон и настроение. Питание — дневник еды.' }
+        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
+        { target: () => document.querySelector('.view-switcher'), text: 'Задачи — твой список и история по дням. Чек-ап — сон, настроение, энергия и здоровье. Питание — дневник еды.' }
     ];
 
     const VIEW_HINTS = {
         month:   'История по дням: тёмная клетка — выполнено. Кликни по любому дню, чтобы отметить задним числом.',
-        morning: 'Чек-ап дня: качество сна и настроение. Сохраняй раз в день — данные пойдут в графики «Месяца».',
-        evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.'
+        morning: 'Чек-ап дня: время сна и подъёма, качество сна, настроение, энергия и здоровье — шкалами 1–10, сохраняется автоматически. Ниже — график настроения и сна за месяц и кнопка «Аналитика» с историей по дням.',
+        evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.',
+        food:    'Питание: для завтрака/обеда/ужина отметь время кнопкой и коротко запиши, что ел — сохраняется сразу. Ниже — сводка по дням за эту неделю.'
     };
 
     let tourSteps = [], tourIdx = 0;
     function startTour(steps) {
-        tourSteps = steps.filter(s => !s.feature || FEATURES[s.feature]); tourIdx = 0;
+        const hasHabits = (dashState.habits || []).length > 0;
+        tourSteps = steps.filter(s => (!s.feature || FEATURES[s.feature]) && (!s.requiresHabits || hasHabits));
+        tourIdx = 0;
         const ov = document.getElementById('coach-overlay');
         if (!ov) return;
         ov.classList.add('active');
@@ -2468,7 +2479,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (m) m.classList.remove('active');
     }
     // Family дешевле Personal именно за счёт нескольких человек — покупать его в одиночку
-    // бессмысленно, поэтому пока в семье (window.familyMemberCount, см. auth.js renderFamily) никого
+    // бессмысленно, поэтому пока в семье (window.familyMemberCount, см. auth.js renderInvitedFriends) никого
     // нет, кнопка вообще не показывается (а не просто дизейблится).
     function updatePromodeFamilyButton() {
         const btn = document.getElementById('promode-buy-family-btn');
@@ -2496,6 +2507,31 @@ document.addEventListener('DOMContentLoaded', () => {
     if (promodeInviteBtn) promodeInviteBtn.addEventListener('click', () => {
         if (typeof window.shareInviteLink === 'function') window.shareInviteLink();
     });
+
+    // === ПЕЙВОЛЛ ПОСЛЕ ТРИАЛА (Фаза 7, см. HANDOFF.md) — жёсткий блок без активной подписки и
+    // без бонусных дней, но с кнопкой «Пригласить друга» прямо на экране блокировки (юзер может
+    // разблокировать доступ без оплаты). Показывается/скрывается через window.applyAppAccessGate,
+    // которую дёргает auth.js после каждого loadSubscription() и на visibilitychange.
+    const paywallBuyPersonalBtn = document.getElementById('paywall-buy-personal-btn');
+    if (paywallBuyPersonalBtn) paywallBuyPersonalBtn.addEventListener('click', () => {
+        if (typeof window.buyPersonalPlanOneClick === 'function') window.buyPersonalPlanOneClick('paywall-msg', 'paywall-buy-personal-btn');
+    });
+    const paywallBuyFamilyBtn = document.getElementById('paywall-buy-family-btn');
+    if (paywallBuyFamilyBtn) paywallBuyFamilyBtn.addEventListener('click', () => {
+        if (!(window.familyMemberCount || 0)) return; // недоступно — см. updatePromodeFamilyButton
+        const size = Math.max(2, Math.min(10, (window.familyMemberCount || 0) + 1));
+        if (typeof window.buyFamilyPlanOneClick === 'function') window.buyFamilyPlanOneClick(size, 'paywall-msg', 'paywall-buy-family-btn');
+    });
+    const paywallInviteBtn = document.getElementById('paywall-invite-btn');
+    if (paywallInviteBtn) paywallInviteBtn.addEventListener('click', () => {
+        if (typeof window.shareInviteLink === 'function') window.shareInviteLink();
+    });
+    window.applyAppAccessGate = function (hasAccess) {
+        const screen = document.getElementById('paywall-screen');
+        if (!screen) return;
+        screen.style.display = hasAccess ? 'none' : 'flex';
+        if (!hasAccess && paywallBuyFamilyBtn) paywallBuyFamilyBtn.style.display = (window.familyMemberCount || 0) > 0 ? '' : 'none';
+    };
 
     // === ПИТОМЕЦ: «бегающий» роумер (десктоп) ===
     const petRoamerEl = document.getElementById('pet-roamer');

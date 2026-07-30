@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 let mode = 'login'; // 'login' | 'register'
 let me = null, myEmail = null, myDisplayName = null; // id/email/кастомное имя залогиненного
 let mandatory = false, onAuthed = null; // принудительный вход после тапа по заставке
-window.familyMemberCount = 0; // до загрузки семьи/до входа — считаем «никого нет» (см. renderFamily)
+window.familyMemberCount = 0; // до загрузки семьи/до входа — считаем «никого нет» (см. renderInvitedFriends)
 
 const TIMED_OUT = Symbol('timeout');
 // Защита от зависшего запроса к Supabase (см. коммент у boot()): если промис не резолвится за
@@ -237,33 +237,79 @@ async function syncMyStats() {
   });
 }
 
+// === ЛЕДЖЕР ВЫПОЛНЕНИЯ ЗАДАЧ ЗА СЕГОДНЯ (Фаза 7 — источник правды для скидки) ===
+// Вызывается ТОЛЬКО когда меняется отметка СЕГОДНЯШНЕГО дня (см. habbittracker.js) — записывать
+// прошлые дни задним числом сюда бессмысленно: record_today_completion (db/phase7_…sql) всё
+// равно проставляет day = current_date на сервере, что бы клиент ни прислал.
+let completionSyncTimer = null;
+function syncTodayCompletion(count) {
+  clearTimeout(completionSyncTimer);
+  completionSyncTimer = setTimeout(() => {
+    if (!me) return;
+    sb.rpc('record_today_completion', { p_count: count }).then(({ error }) => {
+      if (error) console.error('record_today_completion:', error.message);
+    });
+  }, 1500);
+}
+window.syncTodayCompletion = syncTodayCompletion;
+
 // === ПОДПИСКА (Stars) ===
 // Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма списывается на бэке
 // (create-invoice/index.ts) — если меняешь цену, поправь ОБА места (см. HANDOFF.md §15).
 const PRICE_PERSONAL_STARS = 250;
 const PRICE_FAMILY_PER_PERSON_STARS = 300;
 let selectedPlan = null;
+const TRIAL_DAYS = 14; // 2 недели — см. HANDOFF.md, Фаза 7 (было 7 дней в исходном плане)
+const DAY_MS = 86400000;
+
+// Сырые поля последней загруженной подписки — держим, чтобы пересчитывать доступ на
+// visibilitychange БЕЗ повторного похода в сеть (сами поля со временем не меняются, меняется
+// только текущее время, с которым их сравниваем — см. applyAccess()).
+window.lastSubscription = null;
+
+// Доступ ко всему приложению (не путать с window.hasActiveSubscription — тот только про Pro mode,
+// см. ниже) — жив, пока активна платная подписка, ИЛИ не вышли 14 дней триала, ИЛИ банк bonus_days
+// (недели за рефералов, см. db/phase7_…sql) отодвигает этот дедлайн дальше. bonus_days никогда не
+// тратится счётчиком — это просто сдвиг даты, поэтому одинаково работает и на триале, и поверх уже
+// оплаченного периода (см. HANDOFF.md).
+function computeAppAccess(s) {
+  if (!s) return { hasAccess: true, daysLeft: TRIAL_DAYS }; // подписка ещё не загрузилась — не блокируем понапрасну
+  if (s.status === 'active') return { hasAccess: true, daysLeft: null };
+  const trialEnd = new Date(s.trial_started_at).getTime() + TRIAL_DAYS * DAY_MS;
+  const paidEnd = s.expires_at ? new Date(s.expires_at).getTime() : 0;
+  const deadline = Math.max(trialEnd, paidEnd) + (s.bonus_days || 0) * DAY_MS;
+  const daysLeft = Math.ceil((deadline - Date.now()) / DAY_MS);
+  return { hasAccess: Date.now() < deadline, daysLeft };
+}
+function applyAccess() {
+  const { hasAccess } = computeAppAccess(window.lastSubscription);
+  if (typeof window.applyAppAccessGate === 'function') window.applyAppAccessGate(hasAccess);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyAccess(); });
 
 async function loadSubscription() {
   if (!me) return;
   const r = await withTimeout(sb.from('subscriptions').select('*').eq('user_id', me).maybeSingle(), 4000);
   if (r === TIMED_OUT || !r.data) { $('sub-status').textContent = '—'; window.hasActiveSubscription = false; return; }
   const s = r.data;
+  window.lastSubscription = s;
   const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '';
   // Pro mode (habbittracker.js) читает этот флаг напрямую — активная подписка (любой план)
-  // снимает пейволл с тумблера. Не трогает free-триал: он про сам трекер, не про Pro mode.
+  // снимает пейволл с тумблера. Не трогает free-триал/бонусные дни: это отдельный, более широкий
+  // гейт на доступ ко всему приложению (см. computeAppAccess/applyAccess выше).
   window.hasActiveSubscription = s.status === 'active';
+  const { hasAccess, daysLeft } = computeAppAccess(s);
   if (s.status === 'active') {
     $('sub-status').textContent = s.plan === 'family'
       ? `Family (${s.family_size} чел.) до ${fmt(s.expires_at)}`
       : `Personal до ${fmt(s.expires_at)}`;
-  } else if (s.status === 'trial') {
-    const started = new Date(s.trial_started_at).getTime();
-    const daysLeft = 7 - Math.floor((Date.now() - started) / 86400000);
-    $('sub-status').textContent = daysLeft > 0 ? `Триал — ещё ${daysLeft} дн.` : 'Триал закончился';
+  } else if (hasAccess) {
+    $('sub-status').textContent = `Триал — ещё ${daysLeft} дн.${s.bonus_days ? ` (включая ${s.bonus_days} бонусных)` : ''}`;
   } else {
-    $('sub-status').textContent = 'Подписка истекла';
+    $('sub-status').textContent = 'Бесплатный период закончился';
   }
+  if (typeof window.applyAppAccessGate === 'function') window.applyAppAccessGate(hasAccess);
+  updateBonusStats(); // bonus_days только что обновился — обновим и цифру в профиле (см. ниже)
 }
 
 function updateFamilyPriceLabel() {
@@ -367,19 +413,29 @@ function shareInviteLink() {
   }
 }
 
-// === СЕМЬЯ (Фаза 3) ===
+// === ПРИГЛАШЁННЫЕ ДРУЗЬЯ / СЕМЬЯ (Фаза 3 + Фаза 7) ===
+// «Приглашён» = любая invites-строка с to_id=я (кто-то использовал мой код/ссылку) — бонусные
+// дни начисляются ровно на это (см. db/phase7_…sql, триггер AFTER INSERT), НЕЗАВИСИМО от того,
+// добавлен ли этот человек потом в семью. «В семье» = status=accepted; кнопки «Добавить/Удалить
+// из семьи» ниже просто переключают status между accepted и pending — это уже разрешено
+// существующей RLS-политикой (to_id=auth.uid() может update), схему под это не меняли.
 async function loadFamily() {
   if (!me) return;
-  const r1 = await withTimeout(sb.from('invites').select('id, from_code').eq('to_id', me).eq('status', 'pending'), 4000);
+  const r1 = await withTimeout(sb.from('invites').select('id, from_id, from_code, status').eq('to_id', me), 4000);
   if (r1 === TIMED_OUT) return; // сеть подвисла — тихо выходим, следующий refresh() попробует снова
-  renderIncoming(r1.data || []);
-  const r2 = await withTimeout(sb.from('invites').select('from_id, to_id').eq('status', 'accepted'), 4000); // RLS вернёт только мои
-  if (r2 === TIMED_OUT) return;
-  const friendIds = (r2.data || []).map(r => r.from_id === me ? r.to_id : r.from_id);
-  if (!friendIds.length) { renderFamily([]); return; }
-  const r3 = await withTimeout(sb.from('stats').select('*').in('id', friendIds), 4000);
-  if (r3 === TIMED_OUT) return;
-  renderFamily(r3.data || []);
+  const invited = r1.data || [];
+  window.invitedFriendsCount = invited.length; // читает профиль (бонус-статистика) и пейволл
+  const acceptedIds = invited.filter(inv => inv.status === 'accepted').map(inv => inv.from_id);
+  // Читается пейволлом Pro mode/после триала (habbittracker.js) — пока в семье никого нет,
+  // покупка Family недоступна (план дешевле именно ЗА СЧЁТ нескольких человек).
+  window.familyMemberCount = acceptedIds.length;
+  let statsById = {};
+  if (acceptedIds.length) {
+    const r2 = await withTimeout(sb.from('stats').select('*').in('id', acceptedIds), 4000);
+    if (r2 !== TIMED_OUT) statsById = Object.fromEntries((r2.data || []).map(s => [s.id, s]));
+  }
+  renderInvitedFriends(invited, statsById);
+  updateBonusStats();
 }
 async function sendInvite() {
   const code = $('fam-invite-input').value.trim().toUpperCase();
@@ -393,29 +449,39 @@ async function sendInvite() {
   $('fam-invite-input').value = '';
   loadFamily();
 }
-async function respondInvite(id, accept) {
-  await sb.from('invites').update({ status: accept ? 'accepted' : 'declined' }).eq('id', id);
+async function addToFamily(id) {
+  await sb.from('invites').update({ status: 'accepted' }).eq('id', id);
   loadFamily();
 }
-function renderIncoming(list) {
-  const box = $('fam-incoming');
-  if (!list.length) { box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="fam-h">Входящие приглашения</div>' + list.map(inv =>
-    `<div class="fam-inv"><span>от <b>${inv.from_code || '—'}</b></span><span class="fam-inv-btns"><button class="fam-yes" data-id="${inv.id}" type="button">Принять</button><button class="fam-no" data-id="${inv.id}" type="button">Отклонить</button></span></div>`
-  ).join('');
-  box.querySelectorAll('.fam-yes').forEach(b => b.addEventListener('click', () => respondInvite(b.dataset.id, true)));
-  box.querySelectorAll('.fam-no').forEach(b => b.addEventListener('click', () => respondInvite(b.dataset.id, false)));
+async function removeFromFamily(id) {
+  // 'pending' переиспользуется как «приглашён, но не в семье» (не «ожидает ответа») — бонус за
+  // реферала при этом не трогается, он был начислен один раз при первом появлении строки.
+  await sb.from('invites').update({ status: 'pending' }).eq('id', id);
+  loadFamily();
 }
-function renderFamily(list) {
-  // Читается пейволлом Pro mode (habbittracker.js) — пока в семье никого нет, покупка Family
-  // недоступна (план дешевле именно ЗА СЧЁТ нескольких человек, покупать его в одиночку не имеет
-  // смысла): кнопка получает текст «Купить Family недоступно» и дизейблится.
-  window.familyMemberCount = list.length;
-  const box = $('fam-list');
-  if (!list.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше.</div>'; return; }
-  box.innerHTML = '<div class="fam-h">Моя семья</div>' + list.map(s =>
-    `<div class="fam-member"><div class="fam-name">${s.name || '—'}</div><div class="fam-stats"><span>ур. ${s.level ?? 0}</span><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div></div>`
-  ).join('');
+function updateBonusStats() {
+  const s = window.lastSubscription;
+  const friendsEl = $('bonus-friends-count'); if (friendsEl) friendsEl.textContent = window.invitedFriendsCount || 0;
+  const daysEl = $('bonus-days-count'); if (daysEl) daysEl.textContent = (s && s.bonus_days) || 0;
+}
+function renderInvitedFriends(list, statsById) {
+  const box = $('invited-friends-list');
+  if (!list.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше или поделись ссылкой.</div>'; return; }
+  box.innerHTML = '<div class="fam-h">Приглашённые друзья</div>' + list.map(inv => {
+    const isFamily = inv.status === 'accepted';
+    const s = isFamily ? statsById[inv.from_id] : null;
+    const name = (s && s.name) || inv.from_code || '—';
+    const statsHtml = s
+      ? `<div class="fam-stats"><span>ур. ${s.level ?? 0}</span><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
+      : '';
+    return `<div class="fam-friend">
+      <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}</div>
+      <button class="fam-fam-btn${isFamily ? ' fam-fam-remove' : ''}" data-id="${inv.id}" data-action="${isFamily ? 'remove' : 'add'}" type="button">${isFamily ? 'Удалить из семьи' : 'Добавить в семью'}</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.action === 'add') addToFamily(b.dataset.id); else removeFromFamily(b.dataset.id);
+  }));
 }
 
 async function submit() {

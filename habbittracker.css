@@ -28,6 +28,13 @@
    .web-only-btn { display: inline-block; margin-top: 22px; padding: 12px 28px; background: #111; color: #fff; text-decoration: none; border-radius: 999px; font-size: 15px; font-weight: 500; transition: opacity 0.2s ease; }
    .web-only-btn:hover { opacity: 0.85; }
 
+   /* Пейволл после триала — жёсткий блок поверх дашборда (см. HANDOFF.md, Фаза 7). Позиционируем
+      fixed/inset:0 поверх всего остального UI (z-index выше модалок, ниже коачмарка — пейволл и
+      тур по определению не пересекаются, доступ к туру есть только у активного юзера с доступом). */
+   #paywall-screen { position: fixed; inset: 0; z-index: 3800; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; overflow-y: auto; }
+   #paywall-screen .intro-content { margin-bottom: 8px; }
+   .paywall-actions { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+
    /* =========================================
       ЭКРАН ВЫБОРА КАТЕГОРИИ (онбординг нового юзера)
       ========================================= */
@@ -43,7 +50,7 @@
        background: #fff; color: #111;
        transition: background 0.25s ease, color 0.25s ease;
    }
-   .cat-card.selected .cat-card-inner { background: #111; color: #fff; }
+   .cat-card.selected .cat-card-inner { background: #000; color: #fff; }
    /* Заголовок (название) «въезжает» с лёгким подъёмом и затуханием, когда карточка становится
       активной (центральной) — retrigger идёт просто через transition на смену класса .active в
       JS (onscroll), без @keyframes — надёжнее при частом toggle. */
@@ -709,14 +716,15 @@ canvas { width: 100%; height: 150px; }
 
    /* === ПИТАНИЕ === */
    .food-form { margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
-   /* Три простые ячейки вместо графика с часовой осью (см. HANDOFF.md §15): время сверху,
-      что съел — в теле ячейки. */
+   /* Три простые ячейки вместо графика с часовой осью (см. HANDOFF.md §15): время сверху —
+      тот же кнопочный time-scroll-container/.time-slot-btn, что и «во сколько лёг/встал» в
+      чек-апе (см. renderTimeScroll в JS), что съел — в теле ячейки. */
    .food-cell { border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; }
    .food-cell-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
    .food-meal-name { font-size: 13px; color: #888; }
-   .food-time { width: 96px; flex: 0 0 auto; height: 32px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 8px; font-family: inherit; font-size: 14px; color: #111; outline: none; }
+   .food-cell .food-time { margin: 0 -2px 8px; }
    .food-text { width: 100%; height: 36px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 15px; color: #111; outline: none; box-sizing: border-box; }
-   .food-time:focus, .food-text:focus { border-color: #111; }
+   .food-text:focus { border-color: #111; }
    .food-text::placeholder { color: #bbb; }
    .food-week-title { margin-top: 24px; }
    .food-week { margin-top: 4px; }
@@ -852,7 +860,17 @@ canvas { width: 100%; height: 150px; }
    .sub-family-size label { font-size: 12px; color: #888; }
    .sub-family-size input { width: 60px; height: 34px; border: 1px solid #e0e0e0; border-radius: 8px; font-family: inherit; font-size: 14px; text-align: center; }
    .sub-msg { font-size: 12px; color: #888; min-height: 15px; margin-top: 8px; }
-   /* Семья */
+   /* Скидка/рефералы (Фаза 7) — правила текстом + живая статистика; кнопка «Поделиться
+      ссылкой-приглашением» (auth-copy, см. разметку) стоит прямо в этой же секции. */
+   .bonus-section { margin: 18px 0; border-top: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1; padding: 4px 0 16px; }
+   .bonus-rule { font-size: 12px; color: #666; line-height: 1.5; margin-top: 10px; }
+   .bonus-stats { display: flex; gap: 10px; margin-top: 14px; }
+   .bonus-stat { flex: 1; text-align: center; background: #f7f7f7; border-radius: 8px; padding: 10px 6px; }
+   .bonus-stat-value { display: block; font-size: 20px; font-weight: 700; color: #111; }
+   .bonus-stat-label { display: block; font-size: 11px; color: #888; margin-top: 2px; }
+   /* Семья — единый список «приглашённые друзья»: каждый — с кнопкой «Добавить/Удалить из
+      семьи» (см. auth.js renderInvitedFriends). Раньше здесь были два раздельных списка
+      (входящие на accept/decline + принятые) — объединены в один, см. HANDOFF.md Фаза 7. */
    .fam-section { margin-top: 18px; border-top: 1px solid #f1f1f1; padding-top: 16px; }
    .fam-add { display: flex; gap: 8px; }
    .fam-add .auth-input { flex: 1; text-transform: uppercase; }
@@ -860,12 +878,11 @@ canvas { width: 100%; height: 150px; }
    .fam-invite-btn { flex: 0 0 auto; height: 40px; padding: 0 14px; border: none; background: #111; color: #fff; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; }
    .fam-invite-msg { font-size: 12px; color: #888; min-height: 15px; margin: 6px 0 2px; }
    .fam-h { font-size: 12px; color: #999; margin: 14px 0 6px; }
-   .fam-inv { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; font-size: 13px; color: #111; border-bottom: 1px solid #f5f5f5; }
-   .fam-inv-btns { display: flex; gap: 6px; flex: 0 0 auto; }
-   .fam-yes, .fam-no { border: 1px solid #e0e0e0; background: #fff; color: #111; font-family: inherit; font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
-   .fam-yes { background: #111; color: #fff; border-color: #111; }
-   .fam-no:hover { border-color: #111; }
-   .fam-member { padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+   .fam-friend { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+   .fam-friend-info { min-width: 0; }
+   .fam-fam-btn { flex: 0 0 auto; border: 1px solid #e0e0e0; background: #fff; color: #111; font-family: inherit; font-size: 12px; padding: 6px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+   .fam-fam-btn:hover { border-color: #111; }
+   .fam-fam-btn.fam-fam-remove { background: #111; color: #fff; border-color: #111; }
    .fam-name { font-size: 14px; color: #111; font-weight: 600; margin-bottom: 3px; }
    .fam-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #666; }
    .fam-empty { font-size: 12px; color: #ccc; padding: 8px 0; }
