@@ -217,8 +217,16 @@ async function refresh() {
     $('auth-checking').style.display = 'none';
     $('prof-email').textContent = tgDisplayId();
     $('prof-id').textContent = '…';
-    // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql)
-    const pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+    // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql).
+    // Один повтор через 800мс, если первый запрос упал (не таймаут) — данные в базе почти
+    // наверняка уже есть (см. handle_new_user), падение сразу после verifyOtp обычно значит
+    // просто «сессия ещё не до конца устаканилась», а не реальное отсутствие профиля (репорт
+    // юзера 30.07.2026: «нет профиля», хотя строка в profiles на самом деле была).
+    let pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+    if (pr !== TIMED_OUT && pr.error) {
+      await new Promise(r => setTimeout(r, 800));
+      pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+    }
     if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; }
     else {
       const { data, error } = pr;
