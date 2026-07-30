@@ -84,9 +84,13 @@ async function telegramSignIn(initData) {
       return { ok: false, error: reason };
     }
     // ПРИМЕЧАНИЕ: type здесь должен соответствовать типу, с которым бэкенд вызвал generateLink
-    // ('magiclink'). Если после деплоя verifyOtp падает с ошибкой типа — свериться с актуальной
-    // документацией supabase-js (API этого угла менялась между версиями).
-    const otpRes = await withTimeout(sb.auth.verifyOtp({ email: data.email, token_hash: data.hashed_token, type: 'magiclink' }), 8000);
+    // ('magiclink'). НЕ передавать email вместе с token_hash — текущий supabase-js (грузится с
+    // CDN как @2, т.е. всегда последняя minor-версия) валидирует их как ВЗАИМОИСКЛЮЧАЮЩИЕ пути
+    // верификации (email+token — для 6-значного OTP-кода, token_hash — сам по себе) и падает с
+    // «Only the token_hash and type should be provided», если оба присутствуют одновременно —
+    // это и было настоящей причиной «не входит через Telegram» (баг 30.07.2026, найден по тексту
+    // ошибки, который стал виден только после того, как verifyOtp обернули в withTimeout выше).
+    const otpRes = await withTimeout(sb.auth.verifyOtp({ token_hash: data.hashed_token, type: 'magiclink' }), 8000);
     if (otpRes === TIMED_OUT) { lastTelegramSignInError = 'Подтверждение сессии зависло (verifyOtp не ответил за 8 секунд)'; return { ok: false, error: lastTelegramSignInError }; }
     const { error: otpErr } = otpRes;
     if (otpErr) { console.warn('telegramSignIn: verifyOtp упал —', otpErr.message); lastTelegramSignInError = otpErr.message; return { ok: false, error: otpErr.message }; }
