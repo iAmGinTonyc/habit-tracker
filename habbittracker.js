@@ -68,16 +68,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
+    // Подзаголовок интро — одна случайная фраза при каждой загрузке экрана (не смена по таймеру/
+    // клику, как раньше, см. HANDOFF.md — просто рандом один раз при рендере).
     const phrases = [
-        "Повторение — это не рутина. Это ритм, в котором рождается мастерство.",
-        "Ты не становишься кем-то за один день. Каждое действие — это голос за того, кем ты хочешь стать.",
-        "Дисциплина — это не ограничение свободы. Это путь к ней."
+        "Побеждает тот, кто не останавливается",
+        "У самурая только путь",
+        "Дисциплина сильнее мотивации",
+        "Маленькие шаги каждый день — вот и весь секрет",
+        "Не жди вдохновения. Начни — и оно придёт",
+        "Сила не в том, чтобы не падать, а в том, чтобы вставать снова",
+        "Каждый день — ещё один шаг к тому, кем ты хочешь стать"
     ];
+    if (introText) introText.textContent = phrases[Math.floor(Math.random() * phrases.length)];
 
     // === ПЕРЕМЕННЫЕ СОСТОЯНИЯ ===
-    let phraseInterval = null;
-    let currentPhraseIndex = 0;
-    let isTransitioning = false;
     let timerInterval;
     let reminderInterval;
     let currentEditIndex = null;
@@ -414,19 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // === ИНТРО И ПЕРЕХОДЫ ===
-    function changePhrase() {
-        if (isTransitioning) return;
-        isTransitioning = true;
-        introText.classList.add('fade-out');
-        setTimeout(() => {
-            currentPhraseIndex = (currentPhraseIndex + 1) % phrases.length;
-            introText.textContent = phrases[currentPhraseIndex];
-            introText.classList.remove('fade-out');
-            isTransitioning = false;
-        }, 1500);
-    }
-
     // Ждём window.requireAuth (auth.js — модуль, грузится асинхронно с CDN). Не бесконечно:
     // если за 10с не подгрузился (сеть/CDN легли), даём понятную ошибку вместо вечного спиннера.
     function waitForAuthGate(onReady, onTimeout, triesLeft) {
@@ -437,7 +428,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     introScreen.addEventListener('click', () => {
-        clearInterval(phraseInterval);
         loadingOverlay.classList.add('active');
         setTimeout(() => {
             introScreen.style.opacity = '0';
