@@ -237,6 +237,7 @@ async function refresh() {
     syncMyStats();  // отправить свою сводку в облако
     loadFamily();   // входящие приглашения + семья
     loadSubscription(); // статус триала/подписки
+    syncTimezoneAndActivity(); // для ежедневного пуш-напоминания в 20:00 по локали (Фаза 8)
   } catch (e) {
     console.error('refresh() упал —', e);
     $('auth-checking').style.display = 'block';
@@ -296,6 +297,20 @@ function syncTodayCompletion(count) {
   }, 1500);
 }
 window.syncTodayCompletion = syncTodayCompletion;
+
+// === ТАЙМЗОНА + АКТИВНОСТЬ (Фаза 8 — ежедневное пуш-напоминание в 20:00 по локали) ===
+// Пишем при каждом успешном входе (см. refresh()) — обычный update, доп. RLS не нужна (own
+// profile update из phase1 уже разрешает владельцу писать любые колонки своей строки). Серверный
+// cron (get_and_mark_due_reminders, db/phase8_…sql) сам решает, кому и когда слать сообщение —
+// клиент только сообщает часовой пояс и факт «был здесь только что».
+function syncTimezoneAndActivity() {
+  if (!me) return;
+  let tz;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return; }
+  if (!tz) return;
+  sb.from('profiles').update({ timezone: tz, last_seen_at: new Date().toISOString() }).eq('id', me)
+    .then(({ error }) => { if (error) console.error('syncTimezoneAndActivity:', error.message); });
+}
 
 // === ПОДПИСКА (Stars) ===
 // Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма списывается на бэке
