@@ -763,6 +763,10 @@ document.addEventListener('DOMContentLoaded', () => {
     //   ВИД «МЕСЯЦ» — ИСТОРИЯ / ТЕПЛОВАЯ КАРТА
     // =========================================
     let monthCursor = null; // { y, m } — отображаемый месяц
+    // Pro mode во вкладке «Задачи» — переключатель «День» (сегодняшние показатели, ввод значений,
+    // цели/лимиты — старая вкладка «День» была скрыта FEATURES.dayTab, но UI никуда не делся, см.
+    // renderPsychoMetrics) / «Месяц» (сводка сумм за месяц, см. renderPsychoMonth).
+    let psychoSubView = 'day';
     const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const WD_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
     const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
@@ -772,7 +776,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!root) return;
         if (!monthCursor) { const t = new Date(); monthCursor = { y: t.getFullYear(), m: t.getMonth() }; }
         const { y, m } = monthCursor;
-        if (dashState.psychoMode) { renderPsychoMonth(y, m); return; } // в psycho mode — сводка метрик
+        // Pro mode — «День» (ввод сегодняшних значений, цели/лимиты) либо «Месяц» (сводка сумм),
+        // переключатель под шапкой (см. psychoSubView/renderPsychoDay/renderPsychoMonth).
+        if (dashState.psychoMode) { (psychoSubView === 'day' ? renderPsychoDay : renderPsychoMonth)(y, m); return; }
         const days = daysInMonth(y, m);
         const dayList = Array.from({ length: days }, (_, i) => i + 1);
         const habits = dashState.habits || [];
@@ -970,6 +976,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Сводка метрик за календарный месяц (psycho mode)
+    // Переключатель «День»/«Месяц» — общий для обоих Pro-mode рендеров ниже.
+    function psychoToggleHtml() {
+        return `<div class="dm-toggle">
+            <button class="dm-toggle-btn${psychoSubView === 'day' ? ' active' : ''}" data-mode="day" type="button">День</button>
+            <button class="dm-toggle-btn${psychoSubView === 'month' ? ' active' : ''}" data-mode="month" type="button">Месяц</button>
+        </div>`;
+    }
+    function wirePsychoToggle(root) {
+        root.querySelectorAll('.dm-toggle-btn').forEach(b => b.addEventListener('click', () => {
+            if (b.dataset.mode === psychoSubView) return;
+            psychoSubView = b.dataset.mode;
+            renderMonthView();
+        }));
+    }
+
+    // «День» — ввод сегодняшних значений показателей + цели/лимиты (та самая функциональность из
+    // бывшей вкладки «День», см. renderPsychoMetrics — она никуда не делась, просто была недостижима
+    // после того, как FEATURES.dayTab скрыл кнопку «День», а её единственный вызов остался внутри
+    // renderDayView(), на который теперь ничего не переключается). День всегда про СЕГОДНЯ, не про
+    // выбранный monthCursor — навигация по месяцам тут не нужна.
+    function renderPsychoDay() {
+        const root = document.getElementById('view-month');
+        root.innerHTML = `
+            <div class="month-head"><span class="month-label">Сегодня</span></div>
+            ${psychoToggleHtml()}
+            <div id="psycho-list-tasks"></div>`;
+        wirePsychoToggle(root);
+        renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
+    }
+
     function renderPsychoMonth(y, m) {
         const root = document.getElementById('view-month');
         const days = daysInMonth(y, m);
@@ -996,10 +1032,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="month-label">${MONTH_NAMES[m]} ${y}</span>
                 <button class="month-nav" id="month-next">→</button>
             </div>
+            ${psychoToggleHtml()}
             <div class="month-hint">сумма за месяц · цель = дневная × ${days} дн.</div>
             <div class="pm-list">${rows}</div>`;
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
+        wirePsychoToggle(root);
     }
 
     // Линия настроения и качества сна за месяц (данные из утренних чек-апов)
@@ -1124,8 +1162,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = document.getElementById('psycho-toggle');
         if (t) { t.classList.toggle('on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
-        // «День» скрыт (см. HANDOFF.md §15) — Pro mode теперь показывает месячную сводку метрик
-        // (renderPsychoMonth, уже встроена в renderMonthView) во вкладке «Задачи».
+        // «День» скрыт (см. HANDOFF.md §15) — Pro mode показывает переключатель «День»/«Месяц» во
+        // вкладке «Задачи» (renderPsychoDay/renderPsychoMonth, см. renderMonthView).
         switchView('month');
     }
 
@@ -1136,7 +1174,7 @@ document.addEventListener('DOMContentLoaded', () => {
             normal.style.display = dashState.psychoMode ? 'none' : 'block';
             psycho.style.display = dashState.psychoMode ? 'block' : 'none';
         }
-        if (dashState.psychoMode) renderPsychoMetrics();
+        if (dashState.psychoMode) renderPsychoMetrics(document.getElementById('psycho-list'));
         else renderDashboardHabits(); // сам отрисует колесо в конце
     }
 
@@ -1157,8 +1195,15 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.classList.add('active');
     }
 
-    function renderPsychoMetrics() {
-        const list = document.getElementById('psycho-list');
+    // container — куда рендерить; при повторных внутренних вызовах (после каждого действия)
+    // параметр можно не передавать — используется последний запомненный контейнер. Так один и тот
+    // же рендер работает и из renderPsychoDay() (вкладка «Задачи», см. выше), и из старой (сейчас
+    // недостижимой без FEATURES.dayTab, но не удалённой — см. HANDOFF.md про откат фич-флагов)
+    // renderDayView(), без конфликта id между их разными контейнерами.
+    let psychoMetricsList = null;
+    function renderPsychoMetrics(container) {
+        if (container) psychoMetricsList = container;
+        const list = psychoMetricsList;
         if (!list) return;
         list.innerHTML = '';
         const metrics = dashState.metrics || [];
@@ -1179,7 +1224,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pct = target > 0 ? Math.min(100, Math.round(val / target * 100)) : (val > 0 ? 100 : 0);
             row.innerHTML = `
                 <div class="metric-top">
-                    <span class="metric-name">${m.name}${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
+                    <span class="metric-name-wrap"><span class="metric-name" title="нажми, чтобы переименовать">${m.name}</span>${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
                     <span class="metric-val ${over ? 'over' : ''}"><b>${fmtNum(val)}</b> / ${fmtNum(target)} ${m.unit || ''}</span>
                 </div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
@@ -1199,6 +1244,23 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             row.querySelector('.metric-add').addEventListener('click', add);
             input.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+            // Переименование — клик по названию превращает его в поле ввода; Enter/потеря
+            // фокуса сохраняют, Esc отменяет. settled защищает от двойного срабатывания
+            // (Esc пересобирает список → blur всё равно долетает до уже отсоединённого инпута).
+            row.querySelector('.metric-name').addEventListener('click', () => {
+                const nameSpan = row.querySelector('.metric-name');
+                nameSpan.outerHTML = `<input type="text" class="metric-name-edit" value="${escAttr(m.name)}" maxlength="32">`;
+                const inp = row.querySelector('.metric-name-edit');
+                inp.focus(); inp.select();
+                let settled = false;
+                const finish = (save) => {
+                    if (settled) return; settled = true;
+                    if (save) { const v = inp.value.trim(); if (v && v !== m.name) { m.name = v; saveProgress(); } }
+                    renderPsychoMetrics();
+                };
+                inp.addEventListener('blur', () => finish(true));
+                inp.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); });
+            });
             row.querySelector('.metric-goal').addEventListener('click', () => {
                 const actions = row.querySelector('.metric-actions');
                 actions.innerHTML = `
