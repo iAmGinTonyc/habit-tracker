@@ -36,6 +36,51 @@ interface TelegramUpdate {
   };
 }
 
+// Раздаёт активный доступ реальным членам семьи покупателя (принятые invites в любую сторону —
+// та же симметричная связь, что и public.are_friends в db/phase3_family.sql). Не трогает тех, у
+// кого уже есть СВОЙ активный план без family_owner_id (личная покупка) — не затираем её чужой
+// семейной. Обратная синхронизация (отзыв при распаде семьи) — триггер на invites, см.
+// db/phase9_family_access_sync.sql, здесь её дублировать не нужно.
+// deno-lint-ignore no-explicit-any
+async function grantFamilyAccess(admin: any, ownerId: string, expiresAt: string) {
+  const { data: invites } = await admin
+    .from('invites')
+    .select('from_id, to_id')
+    .eq('status', 'accepted')
+    .or(`from_id.eq.${ownerId},to_id.eq.${ownerId}`);
+  const inviteRows: { from_id: string; to_id: string }[] = invites || [];
+  const memberIdSet = new Set<string>();
+  for (const inv of inviteRows) {
+    const other = inv.from_id === ownerId ? inv.to_id : inv.from_id;
+    if (other !== ownerId) memberIdSet.add(other);
+  }
+  const memberIds = [...memberIdSet];
+  if (!memberIds.length) return;
+
+  const { data: existingRows } = await admin
+    .from('subscriptions')
+    .select('user_id, status, family_owner_id')
+    .in('user_id', memberIds);
+  const rows: { user_id: string; status: string; family_owner_id: string | null }[] = existingRows || [];
+  const existingById: Record<string, { user_id: string; status: string; family_owner_id: string | null }> =
+    Object.fromEntries(rows.map((r) => [r.user_id, r]));
+
+  const now = new Date().toISOString();
+  for (const memberId of memberIds) {
+    const existing = existingById[memberId];
+    if (existing && existing.status === 'active' && !existing.family_owner_id) continue; // своя активная подписка — не трогаем
+    await admin.from('subscriptions').upsert({
+      user_id: memberId,
+      plan: 'family',
+      status: 'active',
+      expires_at: expiresAt,
+      family_size: null, // размер покупки — только у владельца (payload.family_size выше)
+      family_owner_id: ownerId,
+      updated_at: now,
+    });
+  }
+}
+
 Deno.serve(async (req) => {
   // Проверка секрета — единственная защита эндпоинта без JWT
   const incomingSecret = req.headers.get('X-Telegram-Bot-Api-Secret-Token');
@@ -91,9 +136,19 @@ Deno.serve(async (req) => {
         status: 'active',
         expires_at: expiresAt,
         family_size: payload.family_size,
+        family_owner_id: null, // покупатель — всегда владелец своего плана, не чей-то член семьи
         telegram_charge_id: chargeId,
         updated_at: new Date().toISOString(),
       });
+
+      // Family — доступ должны получить не только сам покупатель, но и его реальная семья
+      // (принятые invites, см. db/phase3_family.sql). Раньше этого не было вовсе: family_owner_id
+      // существовал в схеме (db/phase5_telegram.sql), но никто его не заполнял — члены семьи после
+      // оплаты всё равно упирались в пейволл. См. db/phase9_family_access_sync.sql (и обратную
+      // сторону — отзыв доступа при распаде семьи, там же триггером на invites).
+      if (payload.plan === 'family') {
+        await grantFamilyAccess(admin, payload.user_id, expiresAt);
+      }
       return ok();
     }
 

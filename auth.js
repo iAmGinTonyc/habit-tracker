@@ -359,9 +359,13 @@ async function loadSubscription() {
   window.hasActiveSubscription = s.status === 'active';
   const { hasAccess, daysLeft } = computeAppAccess(s);
   if (s.status === 'active') {
-    $('sub-status').textContent = s.plan === 'family'
-      ? `Family (${s.family_size} чел.) до ${fmt(s.expires_at)}`
-      : `Personal до ${fmt(s.expires_at)}`;
+    // family_owner_id заполнен только у ЧЛЕНОВ семьи (не у самого покупателя, см.
+    // db/phase9_family_access_sync.sql) — у них нет своего family_size, показываем иначе.
+    $('sub-status').textContent = s.family_owner_id
+      ? `Family — в семье, доступ до ${fmt(s.expires_at)}`
+      : s.plan === 'family'
+        ? `Family (${s.family_size} чел.) до ${fmt(s.expires_at)}`
+        : `Personal до ${fmt(s.expires_at)}`;
   } else if (hasAccess) {
     $('sub-status').textContent = `Триал — ещё ${daysLeft} дн.${s.bonus_days ? ` (включая ${s.bonus_days} бонусных)` : ''}`;
   } else {

@@ -1114,9 +1114,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const yAt = hr => pad.t + ih - (hr / 24) * ih;
         const parseHM = s => { if (!s) return null; const [hh, mm] = String(s).split(':').map(Number); return isNaN(hh) ? null : hh + (mm || 0) / 60; };
         const barW = Math.max(3, (iw / days) * 0.55);
-        const drawSeg = (d, fromH, toH) => {
+        const drawSeg = (d, fromH, toH, color) => {
             const x = xAt(d) - barW / 2, y1 = yAt(fromH), y2 = yAt(toH);
-            ctx.fillStyle = '#1e3a8a';
+            ctx.fillStyle = color;
             ctx.fillRect(x, Math.min(y1, y2), barW, Math.max(1, Math.abs(y2 - y1)));
         };
         for (let d = 1; d <= days; d++) {
@@ -1124,8 +1124,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!rec) continue;
             const sleepH = parseHM(rec.sleepTime), wakeH = parseHM(rec.wakeTime);
             if (sleepH == null || wakeH == null) continue;
-            if (wakeH <= sleepH) { drawSeg(d, sleepH, 24); drawSeg(d, 0, wakeH); } // через полночь
-            else drawSeg(d, sleepH, wakeH);
+            if (wakeH <= sleepH) { drawSeg(d, sleepH, 24, '#1e3a8a'); drawSeg(d, 0, wakeH, '#1e3a8a'); } // через полночь
+            else drawSeg(d, sleepH, wakeH, '#1e3a8a');
+            // Часы сна урывками (интервальный сон) — «добавить часы сна» в чек-апе, см.
+            // index.html. Не привязаны к реальному времени наверняка, поэтому просто
+            // достраиваем отрезок светлым цветом сразу после подъёма — показываем итоговое
+            // количество сна за день, а не точное время дрёмы.
+            const extra = parseFloat(rec.extraSleepHours);
+            if (extra > 0) drawSeg(d, wakeH, Math.min(24, wakeH + extra), '#93c5fd');
         }
     }
 

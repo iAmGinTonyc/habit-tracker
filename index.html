@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=18">
+    <link rel="stylesheet" href="habbittracker.css?v=19">
 </head>
 <body>
 
@@ -115,6 +115,7 @@
                         <div class="checkin-form" id="morning-form" data-type="morning">
                             <div class="checkin-group"><label>Во сколько лёг спать?</label><div class="time-scroll-container" data-key="sleepTime"></div></div>
                             <div class="checkin-group"><label>Во сколько проснулся?</label><div class="time-scroll-container" data-key="wakeTime"></div></div>
+                            <div class="checkin-group checkin-extra-sleep"><label>Добавить часы сна</label><input type="number" class="checkin-text" data-key="extraSleepHours" min="0" max="12" step="0.5" placeholder="если спал урывками, например 1.5"></div>
                             <div class="checkin-group"><label>Качество сна</label><div class="scale-container" data-key="sleepQuality"></div></div>
                             <div class="checkin-group"><label>Настроение</label><div class="scale-container" data-key="mood"></div></div>
                             <div class="checkin-group"><label>Уровень энергии</label><div class="scale-container" data-key="energy"></div></div>
@@ -142,6 +143,10 @@
                         <div class="month-chart-block">
                             <div class="month-chart-title">Часы сна</div>
                             <canvas id="month-sleep-chart" width="600" height="150"></canvas>
+                            <div class="month-legend">
+                                <span class="lg lg-sleep-main">● Сон (лёг–встал)</span>
+                                <span class="lg lg-sleep-extra">● Добавленные часы</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -327,7 +332,7 @@
                 <!-- Скидка/рефералы (Фаза 7) — правила + живая статистика, кнопка приглашения
                      стоит прямо здесь же, рядом с текстом про бонус, а не отдельно. -->
                 <div class="bonus-section">
-                    <div class="bonus-rule">5+ задач каждый день, вовремя, весь месяц — следующий платёж дешевле на 50%</div>
+                    <div class="bonus-rule">5+ задач каждый день, вовремя, весь месяц — следующая подписка дешевле на 50%</div>
                     <div class="bonus-rule">+1 неделя бесплатно за каждого друга, который присоединится по твоей ссылке</div>
                     <div class="bonus-stats">
                         <div class="bonus-stat"><span class="bonus-stat-value" id="bonus-friends-count">0</span><span class="bonus-stat-label">друзей приглашено</span></div>
@@ -340,7 +345,7 @@
                 <div class="fam-section">
                     <div class="fam-add">
                         <input type="text" id="fam-invite-input" class="auth-input" placeholder="ID близкого" maxlength="8" style="margin-bottom:0">
-                        <button class="fam-invite-btn" id="fam-invite-btn" type="button">Пригласить</button>
+                        <button class="fam-invite-btn" id="fam-invite-btn" type="button">Пригласить в семью</button>
                     </div>
                     <div class="fam-invite-msg" id="fam-invite-msg"></div>
                     <div id="invited-friends-list"></div>
@@ -357,7 +362,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=18"></script>
-    <script type="module" src="auth.js?v=18"></script>
+    <script src="habbittracker.js?v=19"></script>
+    <script type="module" src="auth.js?v=19"></script>
 </body>
 </html>
