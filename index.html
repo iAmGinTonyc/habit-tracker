@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=17">
+    <link rel="stylesheet" href="habbittracker.css?v=18">
 </head>
 <body>
 
@@ -125,14 +125,23 @@
                                 <div class="save-status-row">
                                     <span class="checkin-save-status" id="status-morning"></span>
                                 </div>
-                                <button class="checkin-analytics-btn">Аналитика</button>
                             </div>
                         </div>
-                        <!-- Переехало из вкладки «Месяц» (см. HANDOFF.md §15) -->
+                        <!-- Переехало из вкладки «Месяц» (см. HANDOFF.md §15) — сразу за текущий месяц -->
                         <div class="month-chart-block">
-                            <div class="month-chart-title">Настроение и качество сна</div>
+                            <div class="month-chart-title">Настроение, сон, энергия и здоровье</div>
                             <canvas id="month-ms-chart" width="600" height="150"></canvas>
-                            <div class="month-legend"><span class="lg lg-mood">● Настроение</span><span class="lg lg-sleep">● Качество сна</span></div>
+                            <div class="month-legend">
+                                <span class="lg lg-mood">● Настроение</span>
+                                <span class="lg lg-sleep">● Качество сна</span>
+                                <span class="lg lg-energy">● Энергия</span>
+                                <span class="lg lg-health">● Здоровье</span>
+                            </div>
+                        </div>
+                        <!-- Часы сна: закрашенный промежуток «лёг–встал» по дням месяца -->
+                        <div class="month-chart-block">
+                            <div class="month-chart-title">Часы сна</div>
+                            <canvas id="month-sleep-chart" width="600" height="150"></canvas>
                         </div>
                     </div>
                     
@@ -156,7 +165,6 @@
                                 <div class="save-status-row">
                                     <span class="checkin-save-status" id="status-evening"></span>
                                 </div>
-                                <button class="checkin-analytics-btn">Аналитика</button>
                             </div>
                         </div>
                     </div>
@@ -349,7 +357,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=17"></script>
-    <script type="module" src="auth.js?v=17"></script>
+    <script src="habbittracker.js?v=18"></script>
+    <script type="module" src="auth.js?v=18"></script>
 </body>
 </html>

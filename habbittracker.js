@@ -529,7 +529,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // всегда за ТЕКУЩИЙ календарный месяц (тут навигации по месяцам нет, в отличие от «Задач»).
             if (viewName === 'morning') {
                 const now = new Date();
-                drawMonthMoodSleep(now.getFullYear(), now.getMonth(), daysInMonth(now.getFullYear(), now.getMonth()));
+                const days = daysInMonth(now.getFullYear(), now.getMonth());
+                drawMonthMoodSleep(now.getFullYear(), now.getMonth(), days);
+                drawSleepHoursChart(now.getFullYear(), now.getMonth(), days);
             }
         }
         updateCheckinButtonPulse();
@@ -1078,6 +1080,53 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         series('mood', '#111', []);
         series('sleepQuality', '#999', [4, 3]);
+        series('energy', '#1e40af', []);
+        series('health', '#60a5fa', [2, 2]);
+    }
+
+    // Часы сна отдельным графиком: Y — время суток (0–24), X — дни месяца; закрашенный отрезок —
+    // промежуток от «лёг» до «встал» (см. чек-ап). Если сон переходит через полночь (обычный
+    // случай — лёг вечером, встал утром), рисуем двумя отрезками в одной колонке: сверху (до 24) и
+    // снизу (от 0) — так «через полночь» не выглядит как перенос на соседний день.
+    function drawSleepHoursChart(y, m, days) {
+        const canvas = document.getElementById('month-sleep-chart');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0) { setTimeout(() => drawSleepHoursChart(y, m, days), 60); return; }
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+        const w = rect.width, h = rect.height;
+        const pad = { t: 8, r: 10, b: 16, l: 26 };
+        const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+        ctx.clearRect(0, 0, w, h);
+
+        // сетка по часам суток
+        ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1; ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        [0, 6, 12, 18, 24].forEach(hr => {
+            const yy = pad.t + ih - (hr / 24) * ih;
+            ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
+            ctx.fillText(hr, pad.l - 4, yy + 3);
+        });
+
+        const hist = dashState.checkinHistory || {};
+        const xAt = d => pad.l + (days > 1 ? (d - 1) / (days - 1) * iw : iw / 2);
+        const yAt = hr => pad.t + ih - (hr / 24) * ih;
+        const parseHM = s => { if (!s) return null; const [hh, mm] = String(s).split(':').map(Number); return isNaN(hh) ? null : hh + (mm || 0) / 60; };
+        const barW = Math.max(3, (iw / days) * 0.55);
+        const drawSeg = (d, fromH, toH) => {
+            const x = xAt(d) - barW / 2, y1 = yAt(fromH), y2 = yAt(toH);
+            ctx.fillStyle = '#1e3a8a';
+            ctx.fillRect(x, Math.min(y1, y2), barW, Math.max(1, Math.abs(y2 - y1)));
+        };
+        for (let d = 1; d <= days; d++) {
+            const rec = hist[fdt(y, m, d)]?.morning;
+            if (!rec) continue;
+            const sleepH = parseHM(rec.sleepTime), wakeH = parseHM(rec.wakeTime);
+            if (sleepH == null || wakeH == null) continue;
+            if (wakeH <= sleepH) { drawSeg(d, sleepH, 24); drawSeg(d, 0, wakeH); } // через полночь
+            else drawSeg(d, sleepH, wakeH);
+        }
     }
 
     // =========================================
@@ -1598,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const VIEW_HINTS = {
         month:   'История по дням: тёмная клетка — выполнено. Кликни по любому дню, чтобы отметить задним числом.',
-        morning: 'Чек-ап дня: время сна и подъёма, качество сна, настроение, энергия и здоровье — шкалами 1–10, сохраняется автоматически. Ниже — график настроения и сна за месяц и кнопка «Аналитика» с историей по дням.',
+        morning: 'Чек-ап дня: время сна и подъёма, качество сна, настроение, энергия и здоровье — шкалами 1–10, сохраняется автоматически. Ниже — графики за текущий месяц: настроение/сон/энергия/здоровье и отдельно часы сна.',
         evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.',
         food:    'Питание: для завтрака/обеда/ужина отметь время кнопкой и коротко запиши, что ел — сохраняется сразу. Ниже — сводка по дням за эту неделю.'
     };
@@ -2254,18 +2303,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadHistoryData(type, date);
             });
         });
-    
-        // ✅ Аналитика через делегирование (работает всегда, независимо от перерисовок)
-        document.addEventListener('click', (e) => {
-            const analyticsBtn = e.target.closest('.checkin-analytics-btn');
-            if (analyticsBtn) {
-                const viewDiv = analyticsBtn.closest('.dash-view');
-                if (viewDiv) {
-                    const type = viewDiv.id.replace('view-', '');
-                    openAnalytics(type);
-                }
-            }
-        });
     }
 
     // Сегодняшняя форма больше никогда не блокируется (нет кнопки «Сохранить» — см. autoSaveCheckin
@@ -2337,206 +2374,6 @@ document.addEventListener('DOMContentLoaded', () => {
         backBtn.onclick = () => loadTodayData(type);
         const wrapper = form.querySelector('.checkin-save-wrapper');
         if (wrapper) wrapper.appendChild(backBtn);
-    }
-
-    function openAnalytics(type) {
-        console.log('📊 Opening analytics for:', type);
-        
-        let modal = document.getElementById('analytics-modal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'analytics-modal';
-            modal.className = 'analytics-modal';
-            document.body.appendChild(modal);
-        }
-        
-        modal.innerHTML = `
-            <div class="analytics-header">
-                <h3>Аналитика</h3>
-                <button class="analytics-close" id="analytics-close-btn">✕</button>
-            </div>
-            <div class="analytics-controls">
-                <label>С:</label>
-                <input type="date" id="analytics-start">
-                <label>По:</label>
-                <input type="date" id="analytics-end">
-                <button class="checkin-save-btn" style="padding:6px 12px; font-size:12px;" id="analytics-build-btn">Построить</button>
-            </div>
-            <div id="charts-area"></div>
-        `;
-        
-        modal.classList.add('active');
-        
-        const today = new Date();
-        const weekAgo = new Date();
-        weekAgo.setDate(today.getDate() - 7);
-        
-        document.getElementById('analytics-end').valueAsDate = today;
-        document.getElementById('analytics-start').valueAsDate = weekAgo;
-        
-        // Обработчик закрытия
-        document.getElementById('analytics-close-btn').onclick = closeAnalytics;
-        
-        // Обработчик построения
-        document.getElementById('analytics-build-btn').onclick = () => renderCharts(type);
-        
-        // Строим сразу
-        setTimeout(() => renderCharts(type), 100);
-    }
-
-    function closeAnalytics() {
-        const modal = document.getElementById('analytics-modal');
-        if (modal) modal.classList.remove('active');
-    }
-
-    function renderCharts(type) {
-        const startDate = document.getElementById('analytics-start').value;
-        const endDate = document.getElementById('analytics-end').value;
-        if (!startDate || !endDate) return;
-        
-        const area = document.getElementById('charts-area');
-        area.innerHTML = '<p style="color:#999;text-align:center">Генерация графиков...</p>';
-        
-        setTimeout(() => {
-            area.innerHTML = '';
-            const history = dashState.checkinHistory || {};
-            
-            // Порядок строго как в HTML-форме
-            const metrics = type === 'morning'
-                ? ['sleepQuality', 'mood']
-                : ['dayRate', 'energy', 'satisfaction', 'calm', 'habitQuality'];
-
-            // Названия точно как в вопросах
-            const metricNames = {
-                morning: {
-                    sleepQuality: 'Качество сна',
-                    mood: 'Настроение'
-                },
-                evening: {
-                    dayRate: 'Общая оценка дня',
-                    energy: 'Уровень энергии сейчас',
-                    satisfaction: 'Удовлетворённость результатами',
-                    calm: 'Уровень спокойствия',
-                    habitQuality: 'Качество выполнения привычек'
-                }
-            };
-            
-            metrics.forEach(key => {
-                const container = document.createElement('div');
-                container.className = 'chart-container';
-                const title = metricNames[type]?.[key] || key;
-                container.innerHTML = `<div class="chart-title">${title}</div><canvas id="chart-${key}" width="600" height="200"></canvas>`;
-                area.appendChild(container);
-                
-                const dataPoints = [];
-                const labels = [];
-                const d = new Date(startDate);
-                const end = new Date(endDate);
-                
-                while (d <= end) {
-                    const dateStr = d.toISOString().split('T')[0];
-                    const dayData = history[dateStr]?.[type];
-                    if (dayData && dayData[key]) {
-                        dataPoints.push(dayData[key]);
-                        labels.push(d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'numeric' }));
-                    }
-                    d.setDate(d.getDate() + 1);
-                }
-                
-                if (dataPoints.length > 0) {
-                    drawLineChart(`chart-${key}`, labels, dataPoints, '#111');
-                } else {
-                    container.innerHTML += '<p style="color:#999;text-align:center;font-size:12px">Нет данных</p>';
-                }
-            });
-        }, 50);
-    }
-
-    function drawLineChart(canvasId, labels, data, color) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || data.length === 0) return;
-        
-        // Для четкости на Retina дисплеях
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
-        
-        const w = rect.width;
-        const h = rect.height;
-        const padding = { top: 10, right: 10, bottom: 25, left: 25 };
-        
-        // Очистка
-        ctx.clearRect(0, 0, w, h);
-        
-        const maxVal = 10;
-        // Если данных мало, отступы больше, чтобы точка была по центру
-        const xStep = labels.length > 1 ? (w - padding.left - padding.right) / (labels.length - 1) : (w - padding.left - padding.right);
-        const yScale = (h - padding.top - padding.bottom) / maxVal;
-        
-        // --- Сетка (Очень тонкая) ---
-        ctx.beginPath();
-        ctx.strokeStyle = '#f0f0f0';
-        ctx.lineWidth = 1;
-        // Горизонтальные линии (5 и 10)
-        const lines = [5, 10];
-        lines.forEach(val => {
-            const y = h - padding.bottom - (val * yScale);
-            ctx.moveTo(padding.left, y);
-            ctx.lineTo(w - padding.right, y);
-        });
-        ctx.stroke();
-        
-        // --- Линия графика ---
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        
-        data.forEach((val, i) => {
-            const x = padding.left + i * xStep;
-            const y = h - padding.bottom - (val * yScale);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-        
-        // --- Точки ---
-        data.forEach((val, i) => {
-            const x = padding.left + i * xStep;
-            const y = h - padding.bottom - (val * yScale);
-            
-            ctx.beginPath();
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.arc(x, y, 3, 0, Math.PI * 2); // Маленькие точки (радиус 3)
-            ctx.fill();
-            ctx.stroke();
-            
-            // Значение над точкой
-            ctx.fillStyle = '#111';
-            ctx.font = '600 10px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(val, x, y - 8);
-        });
-        
-        // --- Ось X (Даты) ---
-        ctx.fillStyle = '#999';
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        // Рисуем даты, но не слишком часто
-        const step = Math.ceil(labels.length / 7); 
-        labels.forEach((label, i) => {
-            if (i % step === 0 || i === labels.length - 1) {
-                const x = padding.left + i * xStep;
-                ctx.fillText(label, x, h - 5);
-            }
-        });
     }
     // === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
     window.dashState = dashState;
