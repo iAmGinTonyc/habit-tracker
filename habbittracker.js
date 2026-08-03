@@ -150,6 +150,44 @@ document.addEventListener('DOMContentLoaded', () => {
         location.reload();
     };
 
+    // Предохранитель от гонки при первом включении синка (Фаза 11): если это устройство первым
+    // открыл юзер ПОСЛЕ другого устройства с другими (например, пустыми) данными — свежесть
+    // сравнивается по времени синхронизации, а не по объёму данных, поэтому облако могло
+    // ошибочно перезаписать реальный прогресс. habbittracker_progress_backup — снимок ПРЯМО ПЕРЕД
+    // такой перезаписью (см. applyCloudState выше) — предлагаем юзеру вернуть его вручную.
+    function checkForBackupRestore() {
+        let backup;
+        try { backup = localStorage.getItem('habbittracker_progress_backup'); } catch (e) { return; }
+        if (!backup) return;
+        let current;
+        try { current = localStorage.getItem('habbittracker_progress'); } catch (e) { current = null; }
+        if (backup === current) { try { localStorage.removeItem('habbittracker_progress_backup'); } catch (e) {} return; }
+
+        const bar = document.createElement('div');
+        bar.className = 'restore-backup-bar';
+        bar.innerHTML = `
+            <span>На этом устройстве есть более ранняя версия данных (сохранена перед синхронизацией с другим устройством). Восстановить её?</span>
+            <div class="restore-backup-actions">
+                <button type="button" class="restore-backup-yes">Восстановить</button>
+                <button type="button" class="restore-backup-no">Не нужно</button>
+            </div>`;
+        document.body.appendChild(bar);
+        bar.querySelector('.restore-backup-yes').addEventListener('click', () => {
+            try {
+                localStorage.setItem('habbittracker_progress', backup);
+                // Флаг для init(): после перезагрузки нужно протолкнуть ВОССТАНОВЛЕННЫЕ данные в
+                // облако, иначе следующая синхронизация/реалтайм-событие снова принесёт чужую версию.
+                localStorage.setItem('habbittracker_needs_push_after_restore', '1');
+                localStorage.removeItem('habbittracker_progress_backup');
+            } catch (e) {}
+            location.reload();
+        });
+        bar.querySelector('.restore-backup-no').addEventListener('click', () => {
+            try { localStorage.removeItem('habbittracker_progress_backup'); } catch (e) {}
+            bar.remove();
+        });
+    }
+
     // Сводка для «семьи»: уровень, лучшая серия, % за 7 дней, последнее утреннее настроение
     function getSummary() {
         const habits = dashState.habits || [];
@@ -444,6 +482,15 @@ document.addEventListener('DOMContentLoaded', () => {
             window.dashState = dashState;
             checkNewDay();
             showDashboard(); // вернувшийся пользователь — сразу на «День»
+            // Если это устройство только что перезаписало свои данные облачной версией с другого
+            // устройства (см. window.applyCloudState в saveProgress) — проталкиваем ВОССТАНОВЛЕННЫЕ
+            // (уже лежащие в dashState/localStorage после перезагрузки) данные обратно в облако,
+            // перекрывая чужую версию. Флаг ставит checkForBackupRestore() перед reload.
+            if (localStorage.getItem('habbittracker_needs_push_after_restore')) {
+                localStorage.removeItem('habbittracker_needs_push_after_restore');
+                saveProgress();
+            }
+            checkForBackupRestore();
         } else {
             introScreen.style.opacity = '1'; // статичный текст-интро, фразы больше не сменяются
         }
