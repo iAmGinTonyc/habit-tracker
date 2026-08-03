@@ -7,6 +7,7 @@
 // подставляются платформой автоматически.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { logError } from '../_shared/logError.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -103,10 +104,14 @@ Deno.serve(async (req) => {
       }),
     });
     const tgData = await tgRes.json();
-    if (!tgData.ok) return json({ error: 'telegram_api_error', detail: tgData.description }, 502);
+    if (!tgData.ok) {
+      await logError('create-invoice', 'telegram_api_error', { userId, detail: tgData.description });
+      return json({ error: 'telegram_api_error', detail: tgData.description }, 502);
+    }
 
     return json({ link: tgData.result, discountApplied });
   } catch (e) {
+    await logError('create-invoice', 'unexpected', { detail: e });
     return json({ error: 'unexpected', detail: String(e) }, 500);
   }
 });

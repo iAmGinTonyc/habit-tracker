@@ -30,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const introScreen = document.getElementById('intro-screen');
     const introText = document.getElementById('intro-text');
     const dashboardScreen = document.getElementById('dashboard-screen');
-    const resetBtn = document.getElementById('reset-btn');
     const loadingOverlay = document.getElementById('loading-overlay');
 
     // Применяем фиче-флаги: скрываем UI отключённых фич через style.display, код/данные не трогаем
@@ -133,7 +132,23 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn('⚠️ Ошибка сохранения:', e);
         }
         if (window.syncStats) window.syncStats(); // синк сводки в облако, если залогинен (auth.js дебаунсит)
+        if (window.syncAppState) window.syncAppState(dashState); // синк ВСЕГО прогресса между устройствами (Фаза 11)
     }
+
+    // Применяет состояние, пришедшее из облака (другое устройство/вкладка — см. auth.js
+    // loadAppState/subscribeAppStateRealtime). Бэкапим текущий локальный сейв на случай накладки с
+    // определением «чья версия свежее», а дальше просто перезагружаем страницу поверх новых данных —
+    // так гарантированно проходят все те же миграции/дефолты, что и при обычном старте (см. init()),
+    // без дублирования этой логики здесь.
+    window.applyCloudState = function (remoteState, remoteUpdatedAt) {
+        try {
+            const current = localStorage.getItem('habbittracker_progress');
+            if (current) localStorage.setItem('habbittracker_progress_backup', current);
+        } catch (e) {}
+        localStorage.setItem('habbittracker_progress', JSON.stringify(remoteState));
+        if (remoteUpdatedAt) localStorage.setItem('habbittracker_local_synced_at', remoteUpdatedAt);
+        location.reload();
+    };
 
     // Сводка для «семьи»: уровень, лучшая серия, % за 7 дней, последнее утреннее настроение
     function getSummary() {
@@ -335,7 +350,8 @@ document.addEventListener('DOMContentLoaded', () => {
             metricTargets: {},
             metricLog: {},
             onboardingDone: false, // новый пользователь — покажем тур
-            seenHints: {}
+            seenHints: {},
+            dayEvents: {} // «событие дня» по ключу даты (YYYY-MM-DD), см. renderDayEvent()
         };
     }
 
@@ -414,6 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.unlockedGames) dashState.unlockedGames = [];
             if (!dashState.metricLog) dashState.metricLog = {};
             if (!dashState.metricTargets) dashState.metricTargets = {};
+            if (!dashState.dayEvents) dashState.dayEvents = {};
             // миграция: у старых сейвов не было массива метрик → сидируем дефолтным набором
             // (новый набор уже без «калорий» и «claude»; цели/логи по сохранившимся id остаются).
             // Проверяем именно saved.metrics: пустой массив в сейве = юзер удалил все метрики, его не трогаем.
@@ -573,6 +590,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const FLAME = '<svg class="flame" viewBox="0 0 384 512" width="9" height="11" fill="currentColor" aria-hidden="true"><path d="M216 24c0-15-19-22-29-11C147 60 96 137 96 248c-22-13-36-33-44-57-4-11-19-14-26-4C10 211 0 247 0 288c0 106 86 192 192 192s192-86 192-192c0-104-63-180-120-238-11-11-30-4-30 11v40c0 31-25 56-56 56-23 0-40-15-40-37 0-30 38-50 78-96z"/></svg>';
     const DOTS = '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>';
     const LOCK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+    const CALENDAR_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>';
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
@@ -628,6 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
         introScreen.style.display = 'none';
         dashboardScreen.classList.add('visible');
         updateDashDate();
+        renderDayEvent();
         const pt = document.getElementById('psycho-toggle');
         if (pt) { pt.classList.toggle('on', !!dashState.psychoMode); pt.setAttribute('aria-pressed', dashState.psychoMode ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
@@ -647,6 +666,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const wd = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
         const d = new Date();
         el.textContent = `${d.getDate()} ${months[d.getMonth()]}, ${wd[d.getDay()]}`;
+    }
+
+    // «Событие дня» — одна строка текста на сегодня, хранится в dashState.dayEvents по ключу даты
+    // (см. createDefaultState). Автосохранение на ввод, без отдельной кнопки «Сохранить» — тот же
+    // подход, что уже принят для чек-апа (см. autoSaveCheckin/HANDOFF.md §18).
+    function renderDayEvent() {
+        const display = document.getElementById('day-event-display');
+        if (!display) return;
+        const text = (dashState.dayEvents || {})[todayKey()] || '';
+        display.textContent = text;
+        display.classList.toggle('show', !!text);
     }
 
     function renderDashboardHabits() {
@@ -753,13 +783,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('progress-percent').textContent = `${Math.round(percent)}%`;
         document.getElementById('dash-level-value').textContent = dashState.level;
     }
-
-    resetBtn.addEventListener('click', () => {
-        if (confirm('Сбросить прогресс?')) {
-            localStorage.removeItem('habbittracker_progress');
-            location.reload();
-        }
-    });
 
     // =========================================
     //   ВИД «МЕСЯЦ» — ИСТОРИЯ / ТЕПЛОВАЯ КАРТА
@@ -998,14 +1021,62 @@ document.addEventListener('DOMContentLoaded', () => {
     // после того, как FEATURES.dayTab скрыл кнопку «День», а её единственный вызов остался внутри
     // renderDayView(), на который теперь ничего не переключается). День всегда про СЕГОДНЯ, не про
     // выбранный monthCursor — навигация по месяцам тут не нужна.
+    // null = сегодня (редактируемо, живой ввод значений); иначе 'YYYY-MM-DD' — прошлый день, только
+    // чтение. Уже внутри Pro mode (сама вкладка под замком подписки) — отдельного гейта не нужно,
+    // в отличие от календаря питания (тот доступен и без Pro mode, поэтому гейтится отдельно).
+    let currentPsychoHistoryDate = null;
+
     function renderPsychoDay() {
         const root = document.getElementById('view-month');
+        const isHistory = !!currentPsychoHistoryDate;
         root.innerHTML = `
-            <div class="month-head"><span class="month-label">Сегодня</span></div>
+            <div class="checkin-header-row">
+                <span class="month-label">${isHistory ? '' : 'Сегодня'}</span>
+                <span class="checkin-date-label" id="date-label-psycho"></span>
+                <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-psycho" title="История">${CALENDAR_ICON}</button>
+            </div>
             ${psychoToggleHtml()}
-            <div id="psycho-list-tasks"></div>`;
+            <div id="psycho-list-tasks"></div>
+            ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-psycho-btn">← Вернуться к сегодня</button>' : ''}`;
         wirePsychoToggle(root);
-        renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
+        updateDateLabel('psycho', isHistory ? currentPsychoHistoryDate : null);
+        if (isHistory) renderPsychoMetricsReadOnly(document.getElementById('psycho-list-tasks'), currentPsychoHistoryDate);
+        else renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
+
+        const backBtn = document.getElementById('back-to-today-psycho-btn');
+        if (backBtn) backBtn.addEventListener('click', () => { currentPsychoHistoryDate = null; renderPsychoDay(); });
+        const historyBtn = document.getElementById('history-btn-psycho');
+        if (historyBtn) historyBtn.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (isHistory) { currentPsychoHistoryDate = null; renderPsychoDay(); return; }
+            openCalendar({
+                value: currentPsychoHistoryDate || todayKey(),
+                onPick: (dateStr) => { currentPsychoHistoryDate = dateStr; renderPsychoDay(); }
+            });
+        });
+    }
+
+    // Читаемый снимок показателей за прошлый день (dashState.metricLog[date]) — без контролов
+    // добавления/переименования/удаления, которые есть только у СЕГОДНЯШНЕГО ввода (см. renderPsychoMetrics).
+    function renderPsychoMetricsReadOnly(container, date) {
+        if (!container) return;
+        const metrics = dashState.metrics || [];
+        if (!metrics.length) { container.innerHTML = '<div class="dash-habit-limit">Нет показателей</div>'; return; }
+        const rec = (dashState.metricLog || {})[date] || {};
+        container.innerHTML = metrics.map(m => {
+            const val = +rec[m.id] || 0;
+            const target = metricTarget(m);
+            const isLimit = m.type === 'limit';
+            const over = isLimit && val > target;
+            const pct = target > 0 ? Math.min(100, Math.round(val / target * 100)) : (val > 0 ? 100 : 0);
+            return `<div class="metric-row">
+                <div class="metric-top">
+                    <span class="metric-name-wrap"><span class="metric-name">${m.name}</span>${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
+                    <span class="metric-val ${over ? 'over' : ''}"><b>${fmtNum(val)}</b> / ${fmtNum(target)} ${m.unit || ''}</span>
+                </div>
+                <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
+            </div>`;
+        }).join('');
     }
 
     function renderPsychoMonth(y, m) {
@@ -1422,30 +1493,49 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // null = сегодня (редактируемо); иначе 'YYYY-MM-DD' — просматриваем историю (только чтение).
+    // Сама история питания по датам — фича Pro mode (см. HANDOFF.md §15), см. клик по history-btn-food.
+    let currentFoodHistoryDate = null;
+
     function renderFood() {
         const root = document.getElementById('view-food');
         if (!root) return;
         if (!dashState.foodLog) dashState.foodLog = {};
         const tKey = todayKey();
-        const today = dashState.foodLog[tKey] || {};
+        const isHistory = !!currentFoodHistoryDate;
+        const viewDate = currentFoodHistoryDate || tKey;
+        const dayRec = dashState.foodLog[viewDate] || {};
+        const isPro = !!window.hasActiveSubscription;
+
         // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма
         // (тот же кнопочный time-scroll-container, что и «во сколько лёг/встал» в чек-апе — см.
         // renderTimeScroll — вместо нативного <input type="time">), ниже — что съел.
         const cells = MEALS.map(meal => {
-            const rec = today[meal.id] || {};
+            const rec = dayRec[meal.id] || {};
             return `<div class="food-cell" data-meal="${meal.id}">
                 <div class="food-cell-head">
                     <span class="food-meal-name">${meal.name}</span>
                 </div>
                 <div class="time-scroll-container food-time" data-meal="${meal.id}"></div>
-                <input type="text" class="food-text" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
+                <input type="text" class="food-text" enterkeyhint="done" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
             </div>`;
         }).join('');
+        // История — тот же кастомный ч/б календарь, что и у чек-апа (openCalendar), но доступ
+        // только по активной подписке — без неё кнопка открывает пейволл Pro mode, а не календарь.
+        const historyIcon = isPro
+            ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>'
+            : LOCK;
         root.innerHTML = `
-            <h3 class="dash-subtitle">Питание сегодня</h3>
-            <div class="food-form">${cells}</div>
+            <div class="checkin-header-row">
+                <h3 class="dash-subtitle" style="margin-bottom:0">Питание${isHistory ? '' : ' сегодня'}</h3>
+                <span class="checkin-date-label" id="date-label-food"></span>
+                <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-food" title="История (Pro mode)">${historyIcon}</button>
+            </div>
+            <div class="food-form${isHistory ? ' history-mode' : ''}" id="food-form">${cells}</div>
+            ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-food-btn">← Вернуться к сегодня</button>' : `
             <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
-            <div class="food-week" id="food-week"></div>`;
+            <div class="food-week" id="food-week"></div>`}`;
+        updateDateLabel('food', isHistory ? viewDate : null);
 
         function setMealField(mealId, field, value) {
             if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
@@ -1458,13 +1548,40 @@ document.addEventListener('DOMContentLoaded', () => {
             renderFoodWeek();
         }
 
-        // автосохранение по вводу (перерисовываем только недельный список, инпуты не трогаем)
+        // автосохранение по вводу (перерисовываем только недельный список, инпуты не трогаем) —
+        // только для сегодняшнего дня; в history-режиме ячейки заблокированы (см. .food-form.history-mode).
         root.querySelectorAll('.food-cell').forEach(cellEl => {
             const mealId = cellEl.dataset.meal;
-            renderTimeScroll(cellEl.querySelector('.food-time'), (today[mealId] || {}).time || '', (label) => setMealField(mealId, 'time', label));
-            cellEl.querySelector('.food-text').addEventListener('input', (e) => setMealField(mealId, 'text', e.target.value));
+            const rec = dayRec[mealId] || {};
+            if (isHistory) {
+                renderTimeScroll(cellEl.querySelector('.food-time'), rec.time || ''); // без onSelect → заблокировано
+                const textInput = cellEl.querySelector('.food-text');
+                textInput.disabled = true;
+                textInput.readOnly = true;
+            } else {
+                renderTimeScroll(cellEl.querySelector('.food-time'), rec.time || '', (label) => setMealField(mealId, 'time', label));
+                const textInput = cellEl.querySelector('.food-text');
+                textInput.addEventListener('input', (e) => setMealField(mealId, 'text', e.target.value));
+                // Кнопка «Готово»/«Done» на мобильной клавиатуре — скрываем клавиатуру, значение уже
+                // сохранено по input выше.
+                textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInput.blur(); } });
+            }
         });
-        renderFoodWeek();
+        if (!isHistory) renderFoodWeek();
+
+        const backBtn = document.getElementById('back-to-today-food-btn');
+        if (backBtn) backBtn.addEventListener('click', () => { currentFoodHistoryDate = null; renderFood(); });
+
+        const historyBtn = document.getElementById('history-btn-food');
+        if (historyBtn) historyBtn.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall(); return; }
+            if (isHistory) { currentFoodHistoryDate = null; renderFood(); return; }
+            openCalendar({
+                value: viewDate,
+                onPick: (dateStr) => { currentFoodHistoryDate = dateStr; renderFood(); }
+            });
+        });
     }
 
     function renderFoodWeek() {
@@ -1902,6 +2019,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     dashState.checkins[prefix][key] = e.target.value;
                     autoSaveCheckin(prefix);
                 });
+                // Кнопка «Готово»/«Done» на мобильной клавиатуре — скрываем клавиатуру, значение уже
+                // сохранено по input выше (автосохранение чек-апа, см. autoSaveCheckin).
+                newInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); newInput.blur(); } });
             });
 
             updateSavedStatus(prefix);
@@ -2391,6 +2511,35 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.view-btn').forEach(btn => {
         btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
+
+    // === «СОБЫТИЕ ДНЯ» (см. renderDayEvent) ===
+    const dayEventModal = document.getElementById('day-event-modal');
+    const dayEventInput = document.getElementById('day-event-input');
+    function openDayEventModal() {
+        if (!dayEventModal || !dayEventInput) return;
+        dayEventInput.value = (dashState.dayEvents || {})[todayKey()] || '';
+        dayEventModal.classList.add('active');
+        setTimeout(() => dayEventInput.focus(), 50);
+    }
+    function closeDayEventModal() {
+        if (dayEventModal) dayEventModal.classList.remove('active');
+    }
+    const dayEventBtn = document.getElementById('day-event-btn');
+    if (dayEventBtn) dayEventBtn.addEventListener('click', openDayEventModal);
+    const dayEventCloseBtn = document.getElementById('day-event-close');
+    if (dayEventCloseBtn) dayEventCloseBtn.addEventListener('click', closeDayEventModal);
+    if (dayEventModal) dayEventModal.addEventListener('click', (e) => { if (e.target === dayEventModal) closeDayEventModal(); });
+    if (dayEventInput) dayEventInput.addEventListener('input', () => {
+        if (!dashState.dayEvents) dashState.dayEvents = {};
+        const text = dayEventInput.value.trim();
+        if (text) dashState.dayEvents[todayKey()] = text;
+        else delete dashState.dayEvents[todayKey()];
+        saveProgress();
+        renderDayEvent();
+    });
+    // Кнопка «Готово»/«Done» на мобильной клавиатуре шлёт keydown Enter — закрываем модалку так же,
+    // как крестиком (данные уже сохранены по input выше, закрытие ничего дополнительно не пишет).
+    if (dayEventInput) dayEventInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDayEventModal(); } });
 
     // === ТУМБЛЕР PRO MODE (бывший psycho mode) — под замком подписки, см. HANDOFF.md §15 ===
     const promodeLockIcon = document.getElementById('promode-lock-icon');

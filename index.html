@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=19">
+    <link rel="stylesheet" href="habbittracker.css?v=21">
 </head>
 <body>
 
@@ -55,18 +55,21 @@
     <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
     <section id="dashboard-screen" class="hidden">
         <div class="dash-toprow">
-            <button class="icon-btn" id="reset-btn" type="button" aria-label="Сбросить прогресс">↺</button>
             <div class="dash-topright">
                 <button class="icon-btn" id="profile-btn" type="button" aria-label="Профиль и вход"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></button>
                 <button class="icon-btn" id="help-btn" type="button" aria-label="Как это работает">?</button>
             </div>
         </div>
         <div class="dash-header">
-            <span class="dash-date" id="dash-date">—</span>
-            <div class="dash-level">
-                <span class="level-label">уровень</span>
-                <span class="level-value" id="dash-level-value">1</span>
+            <div class="dash-header-row">
+                <span class="dash-date" id="dash-date">—</span>
+                <button class="day-event-btn" id="day-event-btn" type="button">Событие дня</button>
+                <div class="dash-level">
+                    <span class="level-label">уровень</span>
+                    <span class="level-value" id="dash-level-value">1</span>
+                </div>
             </div>
+            <div class="day-event-display" id="day-event-display"></div>
         </div>
 
         <!-- Контекстная подсказка онбординга -->
@@ -115,7 +118,7 @@
                         <div class="checkin-form" id="morning-form" data-type="morning">
                             <div class="checkin-group"><label>Во сколько лёг спать?</label><div class="time-scroll-container" data-key="sleepTime"></div></div>
                             <div class="checkin-group"><label>Во сколько проснулся?</label><div class="time-scroll-container" data-key="wakeTime"></div></div>
-                            <div class="checkin-group checkin-extra-sleep"><label>Добавить часы сна</label><input type="number" class="checkin-text" data-key="extraSleepHours" min="0" max="12" step="0.5" placeholder="если спал урывками, например 1.5"></div>
+                            <div class="checkin-group checkin-extra-sleep"><label>Добавить часы сна</label><input type="number" inputmode="decimal" enterkeyhint="done" class="checkin-text" data-key="extraSleepHours" min="0" max="12" step="0.5" placeholder="если спал урывками, например 1.5"></div>
                             <div class="checkin-group"><label>Качество сна</label><div class="scale-container" data-key="sleepQuality"></div></div>
                             <div class="checkin-group"><label>Настроение</label><div class="scale-container" data-key="mood"></div></div>
                             <div class="checkin-group"><label>Уровень энергии</label><div class="scale-container" data-key="energy"></div></div>
@@ -249,6 +252,16 @@
         </div>
     </section>
 
+    <!-- МОДАЛКА: СОБЫТИЕ ДНЯ — только заголовок и одно поле ввода, автосохранение как в чек-апе -->
+    <div id="day-event-modal" class="habit-settings-modal">
+        <div class="habit-settings-content">
+            <div class="habit-settings-header"><h3>Событие дня</h3><button class="habit-settings-close" id="day-event-close">✕</button></div>
+            <div class="habit-settings-body">
+                <input type="text" id="day-event-input" enterkeyhint="done" class="formula-input" maxlength="200" placeholder="запиши самый запоминающийся момент">
+            </div>
+        </div>
+    </div>
+
     <!-- ПИТОМЕЦ: «бегающий» по экранам на десктопе (визуал — плейсхолдер) -->
     <div id="pet-roamer" title="Питомец"><div class="pet-roamer-ph">питомец</div></div>
 
@@ -362,7 +375,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=19"></script>
-    <script type="module" src="auth.js?v=19"></script>
+    <script src="habbittracker.js?v=21"></script>
+    <script type="module" src="auth.js?v=21"></script>
 </body>
 </html>

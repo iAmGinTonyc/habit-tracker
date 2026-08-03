@@ -238,6 +238,7 @@ async function refresh() {
     loadFamily();   // входящие приглашения + семья
     loadSubscription(); // статус триала/подписки
     syncTimezoneAndActivity(); // для ежедневного пуш-напоминания в 20:00 по локали (Фаза 8)
+    loadAppState(); // синхронизация всего прогресса между устройствами (Фаза 11)
   } catch (e) {
     console.error('refresh() упал —', e);
     $('auth-checking').style.display = 'block';
@@ -280,6 +281,63 @@ async function syncMyStats() {
     level: s.level, streak: s.streak, week_pct: s.weekPct, mood: s.mood,
     updated_at: new Date().toISOString()
   });
+}
+
+// === СИНХРОНИЗАЦИЯ ВСЕГО ПРОГРЕССА МЕЖДУ УСТРОЙСТВАМИ (Фаза 11) ===
+// Раньше синкалась только сводка (stats выше) — сами привычки/история/чек-апы/питание/метрики жили
+// только в localStorage конкретного браузера (см. db/phase11_app_state_sync.sql). Конфликты не
+// мержатся по полям — побеждает более свежая запись целиком (last-write-wins по updated_at): для
+// трекера одного человека этого достаточно, честный merge — overkill.
+let appStateSyncTimer = null;
+function syncAppState(state) { clearTimeout(appStateSyncTimer); appStateSyncTimer = setTimeout(() => pushAppState(state), 1500); } // дебаунс, как syncStats
+window.syncAppState = syncAppState;
+
+async function pushAppState(state) {
+  if (!me) return;
+  // updated_at не передаём — его всегда ставит сервер (триггер, см. db/phase11_app_state_sync.sql),
+  // чтобы last-write-wins не зависел от точности часов конкретного устройства. Читаем обратно
+  // именно серверное значение через .select().
+  const { data, error } = await sb.from('app_state').upsert({ user_id: me, data: state }).select('updated_at').single();
+  if (error) { console.error('pushAppState:', error.message); return; }
+  // Помечаем, ЧТО мы сами только что отправили — используется, чтобы не среагировать на своё же
+  // realtime-событие как на «пришли новые данные с другого устройства» (см. subscribeAppStateRealtime).
+  if (data) localStorage.setItem('habbittracker_local_synced_at', data.updated_at);
+}
+
+let appStateChannel = null;
+// Тянет состояние из облака при входе — решает, чья версия свежее (см. комментарий в начале блока).
+// Если в облаке пока пусто (первое включение синка для существующего юзера) — ничего не перезаписываем,
+// просто зальём туда то, что уже есть локально.
+async function loadAppState() {
+  if (!me) return;
+  const r = await withTimeout(sb.from('app_state').select('data, updated_at').eq('user_id', me).maybeSingle(), 4000);
+  if (r === TIMED_OUT) return;
+  const { data, error } = r;
+  if (error) { console.error('loadAppState:', error.message); return; }
+  if (data) {
+    const localSyncedAt = localStorage.getItem('habbittracker_local_synced_at');
+    const remoteIsNewer = !localSyncedAt || new Date(data.updated_at) > new Date(localSyncedAt);
+    if (remoteIsNewer && typeof window.applyCloudState === 'function') window.applyCloudState(data.data, data.updated_at);
+  } else if (window.dashState) {
+    syncAppState(window.dashState); // в облаке ещё ничего нет — заливаем то, что есть локально
+  }
+  subscribeAppStateRealtime();
+}
+
+function subscribeAppStateRealtime() {
+  if (!me || appStateChannel) return;
+  appStateChannel = sb.channel('app_state_' + me)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state', filter: `user_id=eq.${me}` }, (payload) => {
+      const localSyncedAt = localStorage.getItem('habbittracker_local_synced_at');
+      // Своё же изменение (после pushAppState) тоже прилетит этим событием — не перезатираем им
+      // локальное состояние заново, иначе интерфейс будет «мигать» перезагрузкой на каждое сохранение.
+      if (localSyncedAt && new Date(payload.new.updated_at) <= new Date(localSyncedAt)) return;
+      if (typeof window.applyCloudState === 'function') window.applyCloudState(payload.new.data, payload.new.updated_at);
+    })
+    .subscribe();
+}
+function unsubscribeAppStateRealtime() {
+  if (appStateChannel) { sb.removeChannel(appStateChannel); appStateChannel = null; }
 }
 
 // === ЛЕДЖЕР ВЫПОЛНЕНИЯ ЗАДАЧ ЗА СЕГОДНЯ (Фаза 7 — источник правды для скидки) ===
@@ -344,7 +402,13 @@ function applyAccess() {
   const { hasAccess } = computeAppAccess(window.lastSubscription);
   if (typeof window.applyAppAccessGate === 'function') window.applyAppAccessGate(hasAccess);
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyAccess(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  applyAccess();
+  // На мобильных фоновая вкладка часто теряет realtime-соединение (браузер приостанавливает JS/сеть) —
+  // при возврате на всякий случай перепроверяем облако напрямую, а не полагаемся только на websocket.
+  if (me) loadAppState();
+});
 
 async function loadSubscription() {
   if (!me) return;
@@ -590,7 +654,7 @@ function wire() {
   $('auth-toggle').addEventListener('click', () => setMode(mode === 'login' ? 'register' : 'login'));
   $('auth-submit').addEventListener('click', submit);
   $('auth-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-  $('auth-logout').addEventListener('click', async () => { await sb.auth.signOut(); await refresh(); });
+  $('auth-logout').addEventListener('click', async () => { unsubscribeAppStateRealtime(); await sb.auth.signOut(); await refresh(); });
   $('auth-retry-btn').addEventListener('click', retryTelegramSignIn);
   $('sub-plan-personal').addEventListener('click', () => selectPlan('personal'));
   $('sub-plan-family').addEventListener('click', () => selectPlan('family'));

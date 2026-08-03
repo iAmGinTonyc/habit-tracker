@@ -10,6 +10,7 @@
 // который нужно задать вручную: supabase secrets set TELEGRAM_BOT_TOKEN=...).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { logError } from '../_shared/logError.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -76,7 +77,10 @@ async function validateInitData(
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
-  if (!BOT_TOKEN) return json({ error: 'server_misconfigured_no_bot_token' }, 500);
+  if (!BOT_TOKEN) {
+    await logError('telegram-auth', 'server_misconfigured_no_bot_token');
+    return json({ error: 'server_misconfigured_no_bot_token' }, 500);
+  }
 
   try {
     const { initData } = await req.json();
@@ -110,7 +114,10 @@ Deno.serve(async (req) => {
         email_confirm: true,
         user_metadata: { telegram_id: telegramId, first_name: user.first_name, username: user.username },
       });
-      if (createErr || !created?.user) return json({ error: 'create_user_failed', detail: createErr?.message }, 500);
+      if (createErr || !created?.user) {
+        await logError('telegram-auth', 'create_user_failed', { detail: createErr?.message });
+        return json({ error: 'create_user_failed', detail: createErr?.message }, 500);
+      }
       userId = created.user.id;
 
       await admin.from('profiles').update({ telegram_id: telegramId }).eq('id', userId);
@@ -120,7 +127,10 @@ Deno.serve(async (req) => {
     }
 
     const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
-    if (linkErr || !link) return json({ error: 'link_failed', detail: linkErr?.message }, 500);
+    if (linkErr || !link) {
+      await logError('telegram-auth', 'link_failed', { userId, detail: linkErr?.message });
+      return json({ error: 'link_failed', detail: linkErr?.message }, 500);
+    }
 
     const { data: subscription } = await admin.from('subscriptions').select('*').eq('user_id', userId).maybeSingle();
 
@@ -131,6 +141,7 @@ Deno.serve(async (req) => {
       start_param: startParam || null,
     });
   } catch (e) {
+    await logError('telegram-auth', 'unexpected', { detail: e });
     return json({ error: 'unexpected', detail: String(e) }, 500);
   }
 });

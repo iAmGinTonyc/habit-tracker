@@ -1,6 +1,10 @@
 // Edge Function: telegram-payments-webhook
-// Принимает вебхуки от Telegram Bot API: pre_checkout_query (подтвердить перед списанием) и
-// message.successful_payment (списание прошло — активировать подписку). См. HANDOFF.md §15.
+// Принимает ВСЕ вебхуки от Telegram Bot API, которые приходят на единственный зарегистрированный
+// URL бота (Telegram допускает только один webhook на бота): pre_checkout_query (подтвердить перед
+// списанием), message.successful_payment (списание прошло — активировать подписку, см. HANDOFF.md
+// §15) и message.text === '/start' (приветствие с кнопкой открытия Mini App). Имя функции осталось
+// историческим («…-payments-…»), хотя теперь она общий обработчик апдейтов бота — переименование
+// потребовало бы новый URL и повторную регистрацию через setWebhook, не стоит того.
 //
 // ВАЖНО: эта функция вызывается САМИМ Telegram, не нашим клиентом — сессии/JWT у неё нет и быть
 // не может. Деплоить с --no-verify-jwt. Вместо JWT — секретный токен, который Telegram присылает
@@ -12,11 +16,15 @@
 // подставляются платформой автоматически.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { logError } from '../_shared/logError.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const WEBHOOK_SECRET = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+// ДЕРЖАТЬ В СИНХРОНЕ с MINI_APP_URL в send-daily-reminders/index.ts (та же кнопка открытия
+// приложения, тот же URL) — дублирование сознательное, тот же компромисс, что и с ценами Stars.
+const MINI_APP_URL = 'https://iamgintonyc.github.io/habit-tracker/';
 
 function ok() {
   return new Response('ok', { status: 200 });
@@ -32,6 +40,8 @@ interface InvoicePayload {
 interface TelegramUpdate {
   pre_checkout_query?: { id: string };
   message?: {
+    text?: string;
+    chat?: { id: number };
     successful_payment?: { invoice_payload: string; telegram_payment_charge_id: string };
   };
 }
@@ -98,6 +108,26 @@ Deno.serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
   try {
+    // 0) /start (в т.ч. с диплинк-пейлоадом «/start CODE» из реферальной ссылки — сам пейлоад
+    // Mini App читает через initData.start_param на клиенте, боту он тут не нужен) — приветствие
+    // с кнопкой открытия приложения. Та же web_app-кнопка, что и в send-daily-reminders.
+    const text = update.message?.text;
+    const chatId = update.message?.chat?.id;
+    if (text && chatId && text.startsWith('/start')) {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: 'Live Life — трекер жизни. Открывай приложение и начинай ⬇️',
+          reply_markup: {
+            inline_keyboard: [[{ text: 'Открыть Live Life', web_app: { url: MINI_APP_URL } }]],
+          },
+        }),
+      });
+      return ok();
+    }
+
     // 1) Предварительная проверка перед списанием — подтверждаем без вопросов, мы уже
     // зафиксировали цену/план на этапе create-invoice.
     if (update.pre_checkout_query) {
@@ -154,7 +184,7 @@ Deno.serve(async (req) => {
 
     return ok(); // необрабатываемый тип апдейта — игнорируем, но подтверждаем получение
   } catch (e) {
-    console.error('telegram-payments-webhook error:', e);
+    await logError('telegram-payments-webhook', 'unexpected', { detail: e });
     return ok(); // всё равно 200 — иначе Telegram будет бесконечно ретраить сломанный апдейт
   }
 });

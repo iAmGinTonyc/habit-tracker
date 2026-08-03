@@ -8,6 +8,7 @@
 // SUPABASE_SERVICE_ROLE_KEY — платформа подставляет сама.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { logError } from '../_shared/logError.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const CRON_SECRET = Deno.env.get('TELEGRAM_REMINDER_CRON_SECRET') ?? '';
@@ -54,32 +55,42 @@ Deno.serve(async (req) => {
   if (!BOT_TOKEN) return new Response(JSON.stringify({ error: 'no_bot_token' }), { status: 500 });
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const { data, error } = await admin.rpc('get_and_mark_due_reminders');
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-
-  const due: DueRow[] = data || [];
-  let sent = 0;
-  for (const row of due) {
-    const text = PHRASES[Math.floor(Math.random() * PHRASES.length)];
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: row.telegram_id,
-          text,
-          reply_markup: {
-            inline_keyboard: [[{ text: 'Открыть Live Life', web_app: { url: MINI_APP_URL } }]],
-          },
-        }),
-      });
-      const tgData = await res.json();
-      if (tgData.ok) sent++;
-      else console.warn('sendMessage failed for', row.user_id, tgData.description);
-    } catch (e) {
-      // Частая причина — юзер заблокировал бота; не роняем весь батч из-за одного.
-      console.error('send failed for', row.user_id, e);
+  try {
+    const { data, error } = await admin.rpc('get_and_mark_due_reminders');
+    if (error) {
+      await logError('send-daily-reminders', 'get_and_mark_due_reminders_failed', { detail: error.message });
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
     }
+
+    const due: DueRow[] = data || [];
+    let sent = 0;
+    for (const row of due) {
+      const text = PHRASES[Math.floor(Math.random() * PHRASES.length)];
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: row.telegram_id,
+            text,
+            reply_markup: {
+              inline_keyboard: [[{ text: 'Открыть Live Life', web_app: { url: MINI_APP_URL } }]],
+            },
+          }),
+        });
+        const tgData = await res.json();
+        if (tgData.ok) sent++;
+        // Частая причина отказа — юзер заблокировал бота, это рутина, не сбой — в error_log не
+        // пишем (иначе журнал захлебнётся), только в консоль для ручного разбора при желании.
+        else console.warn('sendMessage failed for', row.user_id, tgData.description);
+      } catch (e) {
+        // Частая причина — юзер заблокировал бота; не роняем весь батч из-за одного.
+        console.error('send failed for', row.user_id, e);
+      }
+    }
+    return new Response(JSON.stringify({ due: due.length, sent }), { headers: { 'Content-Type': 'application/json' } });
+  } catch (e) {
+    await logError('send-daily-reminders', 'unexpected', { detail: e });
+    return new Response(JSON.stringify({ error: 'unexpected', detail: String(e) }), { status: 500 });
   }
-  return new Response(JSON.stringify({ due: due.length, sent }), { headers: { 'Content-Type': 'application/json' } });
 });
