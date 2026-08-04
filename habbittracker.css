@@ -144,13 +144,29 @@
    .loading-text { font-size: 24px; font-style: italic; color: #666; animation: pulseText 2s infinite; }
    @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
    
-   .dash-header { margin-bottom: 18px; border-bottom: 1px solid #eee; padding-bottom: 14px; }
-   .dash-header-row { display: flex; align-items: center; gap: 10px; }
-   .dash-date { font-size: 14px; color: #111; font-weight: 500; letter-spacing: 0.2px; }
-   .day-event-btn { flex: 0 0 auto; margin-right: auto; height: 26px; padding: 0 12px; border: 1px solid #e0e0e0; border-radius: 13px; background: #fff; color: #666; font-size: 12px; font-family: inherit; cursor: pointer; transition: all 0.2s; }
+   .day-fields-row { display: flex; gap: 8px; margin: 10px 0; }
+   .day-event-btn { flex: 0 0 auto; height: 26px; padding: 0 12px; border: 1px solid #e0e0e0; border-radius: 13px; background: #fff; color: #666; font-size: 12px; font-family: inherit; cursor: pointer; transition: all 0.2s; }
    .day-event-btn:hover { border-color: #111; color: #111; }
-   .day-event-display { margin-top: 10px; font-size: 13px; color: #555; line-height: 1.4; display: none; }
+   .day-event-display { margin-top: 2px; margin-bottom: 8px; font-size: 13px; color: #555; line-height: 1.4; display: none; }
    .day-event-display.show { display: block; }
+   .day-task-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; }
+   .day-task-check { width: 18px; height: 18px; flex: 0 0 auto; border: 1.5px solid #ccc; border-radius: 5px; position: relative; }
+   .day-task-row.done .day-task-check { background: #111; border-color: #111; }
+   .day-task-row.done .day-task-check::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+   .day-task-text { font-size: 14px; color: #111; }
+   .day-task-row.done .day-task-text { color: #aaa; text-decoration: line-through; }
+
+   /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
+   .task-day-list { margin-top: 6px; }
+   .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
+   .task-day-check { width: 19px; height: 19px; flex: 0 0 auto; border: 1.6px solid #cfcfcf; border-radius: 5px; position: relative; transition: all 0.2s ease; }
+   .task-day-row.done .task-day-check { background: #111; border-color: #111; }
+   .task-day-row.done .task-day-check::after { content: ''; position: absolute; left: 6px; top: 2.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+   .task-day-text { flex: 1; font-size: 16px; color: #111; }
+   .task-day-row.done .task-day-text { color: #bbb; text-decoration: line-through; }
+   .task-day-settings { color: #ccc; cursor: pointer; padding: 4px; }
+   .task-day-list.future .task-day-row { opacity: 0.4; cursor: default; }
+   .task-day-list.future .task-day-check { pointer-events: none; }
    .dash-level { display: flex; align-items: baseline; gap: 6px; }
    .level-label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; }
    .level-value { font-size: 18px; font-weight: 700; color: #111; line-height: 1; transition: transform 0.3s ease; display: inline-block; }
@@ -521,7 +537,14 @@ canvas { width: 100%; height: 150px; }
    .month-head { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 14px; }
    .month-nav { background: none; border: 1px solid #e0e0e0; color: #888; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; transition: all 0.2s; }
    .month-nav:hover { border-color: #111; color: #111; }
-   .month-label { font-size: 16px; font-weight: 600; color: #111; min-width: 150px; text-align: center; letter-spacing: 0.3px; }
+   .month-label { font-size: 16px; font-weight: 600; color: #111; min-width: 150px; text-align: center; letter-spacing: 0.3px; cursor: pointer; }
+
+   /* Навигация по дню «‹ дата ›» + календарь — normal-mode «День» и Pro mode, см. dayNavHeaderHtml */
+   .day-nav-row { justify-content: flex-start; gap: 8px; }
+   .day-nav-arrow { background: none; border: 1px solid #e0e0e0; color: #888; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; transition: all 0.2s; flex: 0 0 auto; }
+   .day-nav-arrow:hover:not(:disabled) { border-color: #111; color: #111; }
+   .day-nav-arrow:disabled { opacity: 0.35; cursor: default; }
+   .day-nav-label { flex: 1; text-align: center; font-size: 14px; font-weight: 600; color: #111; margin: 0; }
 
    /* Переключатель «День»/«Месяц» — только в Pro mode (renderPsychoDay/renderPsychoMonth), под
       шапкой месяца. Обычные привычки этот переключатель не используют (см. HANDOFF.md). */
@@ -715,6 +738,10 @@ canvas { width: 100%; height: 150px; }
    .cal-cell.today { font-weight: 700; text-decoration: underline; }
    .cal-cell.sel { background: #111; color: #fff; }
    .cal-cell:disabled { color: #d8d8d8; cursor: default; }
+   .cal-grid.cal-months { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+   .cal-month-cell { height: 44px; border: 1px solid #eee; background: none; font-family: inherit; font-size: 13px; color: #111; cursor: pointer; border-radius: 8px; padding: 0; }
+   .cal-month-cell:hover { border-color: #111; }
+   .cal-month-cell.sel { background: #111; border-color: #111; color: #fff; }
    .cal-foot { margin-top: 10px; text-align: center; }
    .cal-today { background: none; border: none; color: #666; font-family: inherit; font-size: 13px; cursor: pointer; padding: 6px; }
    .cal-today:hover { color: #111; text-decoration: underline; }

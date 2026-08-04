@@ -56,7 +56,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
     if (isTelegramContext()) {
-        try { window.Telegram.WebApp.ready(); window.Telegram.WebApp.expand(); } catch (e) {}
+        try {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+            // expand() поднимает высоту листа до максимума, НО сам лист остаётся «карточкой» со
+            // скруглёнными углами и тёмной областью сверху (классическое наполовину развёрнутое
+            // окно Mini App) — это чужой UI Telegram, не наш CSS, поэтому его нельзя было убрать
+            // вёрсткой. requestFullscreen() (Bot API 8.0+) убирает эту рамку целиком — юзер прислал
+            // скриншот именно с этой «карточкой», просил выровнять верх приложения по верху экрана.
+            // Метод объявлен в SDK всегда (даже на старых клиентах) — сам SDK при вызове на клиенте
+            // < 8.0 просто пишет ошибку в консоль вместо тихого no-op, поэтому проверяем версию
+            // явно (isVersionAtLeast — рекомендованный Telegram способ), а не только наличие метода.
+            const wa = window.Telegram.WebApp;
+            if (typeof wa.isVersionAtLeast === 'function' && wa.isVersionAtLeast('8.0') && typeof wa.requestFullscreen === 'function') wa.requestFullscreen();
+        } catch (e) {}
     } else {
         // Продукт только для Telegram (решено 22.07.2026, см. HANDOFF.md §15) — прямой браузерный
         // визит (не через Mini App) блокируем экраном-заглушкой, остальную инициализацию не запускаем.
@@ -389,7 +402,8 @@ document.addEventListener('DOMContentLoaded', () => {
             metricLog: {},
             onboardingDone: false, // новый пользователь — покажем тур
             seenHints: {},
-            dayEvents: {} // «событие дня» по ключу даты (YYYY-MM-DD), см. renderDayEvent()
+            dayEvents: {}, // «событие дня» по ключу даты (YYYY-MM-DD), см. renderDayEventAndTask()
+            dayTasks: {}   // «задача дня» по ключу даты: { text, done }, см. renderDayEventAndTask()
         };
     }
 
@@ -469,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.metricLog) dashState.metricLog = {};
             if (!dashState.metricTargets) dashState.metricTargets = {};
             if (!dashState.dayEvents) dashState.dayEvents = {};
+            if (!dashState.dayTasks) dashState.dayTasks = {};
             // миграция: у старых сейвов не было массива метрик → сидируем дефолтным набором
             // (новый набор уже без «калорий» и «claude»; цели/логи по сохранившимся id остаются).
             // Проверяем именно saved.metrics: пустой массив в сейве = юзер удалил все метрики, его не трогаем.
@@ -692,8 +707,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function showDashboard() {
         introScreen.style.display = 'none';
         dashboardScreen.classList.add('visible');
-        updateDashDate();
-        renderDayEvent();
         const pt = document.getElementById('psycho-toggle');
         if (pt) { pt.classList.toggle('on', !!dashState.psychoMode); pt.setAttribute('aria-pressed', dashState.psychoMode ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
@@ -706,24 +719,41 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dashState.onboardingDone) setTimeout(() => startTour(DAY_TOUR), 700); // новый пользователь — вводный тур
     }
 
-    function updateDashDate() {
-        const el = document.getElementById('dash-date');
-        if (!el) return;
-        const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-        const wd = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
-        const d = new Date();
-        el.textContent = `${d.getDate()} ${months[d.getMonth()]}, ${wd[d.getDay()]}`;
+    // Полное название дня — «3 августа, понедельник» — переехало из бывшей фиксированной шапки
+    // (updateDashDate) в новую навигацию по дням внутри «Задачи»/Pro mode (см. renderDayNavControls).
+    const FULL_MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const FULL_WD_NAMES = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+    function formatFullDate(dateKey) {
+        const [y, m, d] = dateKey.split('-').map(Number);
+        const dt = new Date(y, m - 1, d);
+        return `${d} ${FULL_MONTH_NAMES[dt.getMonth()]}, ${FULL_WD_NAMES[dt.getDay()]}`;
+    }
+    function addDaysToKey(dateKey, delta) {
+        const [y, m, d] = dateKey.split('-').map(Number);
+        const dt = new Date(y, m - 1, d + delta);
+        return fdt(dt.getFullYear(), dt.getMonth(), dt.getDate());
     }
 
-    // «Событие дня» — одна строка текста на сегодня, хранится в dashState.dayEvents по ключу даты
-    // (см. createDefaultState). Автосохранение на ввод, без отдельной кнопки «Сохранить» — тот же
-    // подход, что уже принят для чек-апа (см. autoSaveCheckin/HANDOFF.md §18).
-    function renderDayEvent() {
-        const display = document.getElementById('day-event-display');
-        if (!display) return;
-        const text = (dashState.dayEvents || {})[todayKey()] || '';
-        display.textContent = text;
-        display.classList.toggle('show', !!text);
+    // Навигация «‹ 3 августа, понедельник ›» + кнопка календаря — общая и для normal-mode «День»
+    // (renderTaskDayView), и для Pro mode (renderPsychoDay). idPrefix различает элементы двух видов
+    // на странице (если вдруг оба когда-нибудь окажутся в DOM одновременно). onChange(dateKey)
+    // вызывается при переключении — вызывающая сторона сама решает, что перерисовать.
+    function dayNavHeaderHtml(dateKey, idPrefix) {
+        const isToday = dateKey === todayKey();
+        return `<div class="checkin-header-row day-nav-row">
+            <button class="day-nav-arrow" id="${idPrefix}-prev" type="button" aria-label="Предыдущий день">←</button>
+            <span class="checkin-date-label day-nav-label">${isToday ? 'Сегодня' : formatFullDate(dateKey)}</span>
+            <button class="day-nav-arrow" id="${idPrefix}-next" type="button" aria-label="Следующий день"${isToday ? ' disabled' : ''}>→</button>
+            <button class="history-btn" id="${idPrefix}-cal" title="Открыть календарь">${CALENDAR_ICON}</button>
+        </div>`;
+    }
+    function wireDayNavHeader(idPrefix, dateKey, onChange) {
+        const prevBtn = document.getElementById(`${idPrefix}-prev`);
+        const nextBtn = document.getElementById(`${idPrefix}-next`);
+        const calBtn = document.getElementById(`${idPrefix}-cal`);
+        if (prevBtn) prevBtn.addEventListener('click', () => onChange(addDaysToKey(dateKey, -1)));
+        if (nextBtn) nextBtn.addEventListener('click', () => { if (dateKey < todayKey()) onChange(addDaysToKey(dateKey, 1)); });
+        if (calBtn) calBtn.addEventListener('click', () => openCalendar({ value: dateKey, onPick: onChange }));
     }
 
     function renderDashboardHabits() {
@@ -828,7 +858,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('progress-fill').style.width = `${percent}%`;
         document.getElementById('progress-text').textContent = `${dashState.currentXP} / ${stats.xpNeeded} XP`;
         document.getElementById('progress-percent').textContent = `${Math.round(percent)}%`;
-        document.getElementById('dash-level-value').textContent = dashState.level;
+        const levelEl = document.getElementById('dash-level-value');
+        if (levelEl) levelEl.textContent = dashState.level;
     }
 
     // =========================================
@@ -839,6 +870,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // цели/лимиты — старая вкладка «День» была скрыта FEATURES.dayTab, но UI никуда не делся, см.
     // renderPsychoMetrics) / «Месяц» (сводка сумм за месяц, см. renderPsychoMonth).
     let psychoSubView = 'day';
+    // Тот же переключатель «День»/«Месяц», но для ОБЫЧНОГО режима (не Pro) — «Месяц» дефолт (см.
+    // комментарий у вызова в renderMonthView, дефолт менять нельзя из-за онбординг-тура).
+    let taskViewMode = 'month';
+    let currentTaskDate = todayKey(); // дата, открытая в normal-mode «День» — листается стрелками/календарём
     const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const WD_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
     const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
@@ -851,6 +886,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Pro mode — «День» (ввод сегодняшних значений, цели/лимиты) либо «Месяц» (сводка сумм),
         // переключатель под шапкой (см. psychoSubView/renderPsychoDay/renderPsychoMonth).
         if (dashState.psychoMode) { (psychoSubView === 'day' ? renderPsychoDay : renderPsychoMonth)(y, m); return; }
+        // Обычный режим — тот же переключатель «День»/«Месяц», что и в Pro mode (см. HANDOFF.md).
+        // «Месяц» — дефолт (тепловая карта ниже) — на неё, в частности, целится онбординг-тур
+        // (.hm-row-head и т.п., см. DAY_TOUR), поэтому дефолт менять нельзя.
+        if (taskViewMode === 'day') { renderTaskDayView(currentTaskDate); return; }
         const days = daysInMonth(y, m);
         const dayList = Array.from({ length: days }, (_, i) => i + 1);
         const habits = dashState.habits || [];
@@ -867,9 +906,10 @@ document.addEventListener('DOMContentLoaded', () => {
         root.innerHTML = `
             <div class="month-head">
                 <button class="month-nav" id="month-prev">←</button>
-                <span class="month-label">${MONTH_NAMES[m]} ${y}</span>
+                <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
                 <button class="month-nav" id="month-next">→</button>
             </div>
+            ${taskViewToggleHtml()}
             <div class="month-summary">
                 <div class="month-stat"><span>${st.done}</span>выполнено</div>
                 <div class="month-stat"><span>${st.possible}</span>возможно</div>
@@ -883,6 +923,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div id="life-wheel-month"></div>
             </div>
         `;
+        wireTaskViewToggle(root);
         renderLifeWheel('month', 'life-wheel-month', y, m);
 
         // «+ добавить привычку» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15).
@@ -1045,6 +1086,104 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
+        document.getElementById('month-label').onclick = () => {
+            openMonthPicker({ value: { y: monthCursor.y, m: monthCursor.m }, onPick: (py, pm) => { monthCursor.y = py; monthCursor.m = pm; renderMonthView(); } });
+        };
+    }
+
+    // Переключатель «День»/«Месяц» для ОБЫЧНОГО режима — та же кнопка-пилюля, что и в Pro mode
+    // (см. psychoToggleHtml), просто на своей переменной (taskViewMode), чтобы Pro mode и обычный
+    // режим не путали друг другу выбор при переключении тумблера Pro mode.
+    function taskViewToggleHtml() {
+        return `<div class="dm-toggle">
+            <button class="dm-toggle-btn${taskViewMode === 'day' ? ' active' : ''}" data-mode="day" type="button">День</button>
+            <button class="dm-toggle-btn${taskViewMode === 'month' ? ' active' : ''}" data-mode="month" type="button">Месяц</button>
+        </div>`;
+    }
+    function wireTaskViewToggle(root) {
+        root.querySelectorAll('.dm-toggle-btn').forEach(b => b.addEventListener('click', () => {
+            if (b.dataset.mode === taskViewMode) return;
+            taskViewMode = b.dataset.mode;
+            renderMonthView();
+        }));
+    }
+
+    // Отметить/снять привычку за конкретный день — версия toggleHabit/клика по клетке heatmap для
+    // простого списка normal-mode «День» (без тепловой карты и анимации раскрытия — юзер попросил
+    // просто оставлять зачёркнутой, не открывая историю месяца по этой задаче). За СЕГОДНЯ —
+    // та же history-запись/XP/леджер скидки, что и везде; за прошлые дни — тот же retroactive-режим,
+    // что уже разрешён в тепловой карте, просто без начисления XP. Будущее — недоступно.
+    function toggleHabitForDate(habit, dateKey) {
+        if (dateKey > todayKey()) return null;
+        const now = !isDone(habit.uid, dateKey);
+        setHistory(habit.uid, dateKey, now);
+        if (dateKey === todayKey()) {
+            habit.completed = now;
+            if (now && habit.xpDate !== todayKey()) { habit.xpDate = todayKey(); awardXP(getLevelStats(dashState.level).xpPerHabit); }
+            if (window.syncTodayCompletion) window.syncTodayCompletion((dashState.habits || []).filter(h => isDone(h.uid, todayKey())).length);
+        }
+        saveProgress();
+        return now;
+    }
+
+    // normal-mode «День» — простой список привычек на выбранный день (чекбокс, без тепловой карты
+    // и без сводки месяца — та показывается только во «Месяце», см. запрос юзера) + событие/задача
+    // дня для этого же дня, + навигация стрелками/календарём (см. dayNavHeaderHtml).
+    function renderTaskDayView(dateKey) {
+        const root = document.getElementById('view-month');
+        if (!root) return;
+        const habits = dashState.habits || [];
+        const isFuture = dateKey > todayKey();
+        const rows = habits.map((h, idx) => {
+            const done = isDone(h.uid, dateKey);
+            return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
+                <span class="task-day-check"></span>
+                <span class="task-day-text">${h.text}</span>
+                <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
+            </div>`;
+        }).join('');
+        root.innerHTML = `
+            ${dayNavHeaderHtml(dateKey, 'task-day-nav')}
+            <div id="task-day-fields"></div>
+            ${taskViewToggleHtml()}
+            ${habits.length ? `<div class="task-day-list${isFuture ? ' future' : ''}">${rows}</div>` : '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
+            <div id="task-day-add"></div>`;
+        wireDayNavHeader('task-day-nav', dateKey, (newKey) => { currentTaskDate = newKey; renderTaskDayView(newKey); });
+        wireTaskViewToggle(root);
+        function refreshFields() { renderDayEventAndTask(document.getElementById('task-day-fields'), dateKey, refreshFields); }
+        refreshFields();
+
+        if (!isFuture) {
+            root.querySelectorAll('.task-day-row').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    if (e.target.closest('.task-day-settings')) return;
+                    const h = habits.find(x => x.uid === row.dataset.uid);
+                    if (!h) return;
+                    const now = toggleHabitForDate(h, dateKey);
+                    row.classList.toggle('done', now);
+                });
+            });
+        }
+        root.querySelectorAll('.task-day-settings').forEach(s => s.addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(+s.dataset.idx); }));
+
+        // «+ добавить привычку» — тот же паттерн, что в шапке тепловой карты (см. renderMonthView).
+        const addBox = document.getElementById('task-day-add');
+        if (addBox) {
+            if (habits.length < MAX_HABITS) {
+                addBox.innerHTML = `<div class="dash-habit-add"><input type="text" id="new-habit-input-day" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}"></div>`;
+                const inp = addBox.querySelector('#new-habit-input-day');
+                inp.addEventListener('keydown', e => {
+                    if (e.key !== 'Enter') return;
+                    const v = inp.value.trim();
+                    if (!v) return;
+                    dashState.habits.push({ text: v, completed: false, uid: newUid(), areas: [] });
+                    saveProgress();
+                    renderTaskDayView(dateKey);
+                });
+            } else {
+                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
+            }
+        }
     }
 
     // Сводка метрик за календарный месяц (psycho mode)
@@ -1068,39 +1207,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // после того, как FEATURES.dayTab скрыл кнопку «День», а её единственный вызов остался внутри
     // renderDayView(), на который теперь ничего не переключается). День всегда про СЕГОДНЯ, не про
     // выбранный monthCursor — навигация по месяцам тут не нужна.
-    // null = сегодня (редактируемо, живой ввод значений); иначе 'YYYY-MM-DD' — прошлый день, только
-    // чтение. Уже внутри Pro mode (сама вкладка под замком подписки) — отдельного гейта не нужно,
-    // в отличие от календаря питания (тот доступен и без Pro mode, поэтому гейтится отдельно).
-    let currentPsychoHistoryDate = null;
+    // Дата, которую сейчас смотрим в «Дне» Pro mode — по умолчанию сегодня, листается стрелками
+    // либо через календарь (см. dayNavHeaderHtml/wireDayNavHeader). Прошлые дни — только чтение
+    // (renderPsychoMetricsReadOnly), сегодня — живой ввод (renderPsychoMetrics). Уже внутри Pro mode
+    // (сама вкладка под замком подписки) — отдельного гейта не нужно, в отличие от календаря питания
+    // (тот доступен и без Pro mode, поэтому гейтится отдельно).
+    let currentPsychoDate = todayKey();
 
     function renderPsychoDay() {
         const root = document.getElementById('view-month');
-        const isHistory = !!currentPsychoHistoryDate;
+        const dateKey = currentPsychoDate;
+        const isToday = dateKey === todayKey();
+        // Только навигация по дню (стрелки + календарь) — это и была вся правка, которую просил
+        // юзер («фильтрацию днями подредактировать»). «Событие дня»/«Задача дня» сюда НЕ добавляем —
+        // это фичи normal-mode «Задачи» (см. renderTaskDayView), Pro mode их не касается. Сама
+        // механика накопления значений (renderPsychoMetrics — живой ввод «+ значение») не менялась.
         root.innerHTML = `
-            <div class="checkin-header-row">
-                <span class="month-label">${isHistory ? '' : 'Сегодня'}</span>
-                <span class="checkin-date-label" id="date-label-psycho"></span>
-                <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-psycho" title="История">${CALENDAR_ICON}</button>
-            </div>
+            ${dayNavHeaderHtml(dateKey, 'psycho-nav')}
             ${psychoToggleHtml()}
-            <div id="psycho-list-tasks"></div>
-            ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-psycho-btn">← Вернуться к сегодня</button>' : ''}`;
+            <div id="psycho-list-tasks"></div>`;
         wirePsychoToggle(root);
-        updateDateLabel('psycho', isHistory ? currentPsychoHistoryDate : null);
-        if (isHistory) renderPsychoMetricsReadOnly(document.getElementById('psycho-list-tasks'), currentPsychoHistoryDate);
-        else renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
-
-        const backBtn = document.getElementById('back-to-today-psycho-btn');
-        if (backBtn) backBtn.addEventListener('click', () => { currentPsychoHistoryDate = null; renderPsychoDay(); });
-        const historyBtn = document.getElementById('history-btn-psycho');
-        if (historyBtn) historyBtn.addEventListener('click', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            if (isHistory) { currentPsychoHistoryDate = null; renderPsychoDay(); return; }
-            openCalendar({
-                value: currentPsychoHistoryDate || todayKey(),
-                onPick: (dateStr) => { currentPsychoHistoryDate = dateStr; renderPsychoDay(); }
-            });
-        });
+        wireDayNavHeader('psycho-nav', dateKey, (newKey) => { currentPsychoDate = newKey; renderPsychoDay(); });
+        if (isToday) renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
+        else renderPsychoMetricsReadOnly(document.getElementById('psycho-list-tasks'), dateKey);
     }
 
     // Читаемый снимок показателей за прошлый день (dashState.metricLog[date]) — без контролов
@@ -1149,7 +1278,7 @@ document.addEventListener('DOMContentLoaded', () => {
         root.innerHTML = `
             <div class="month-head">
                 <button class="month-nav" id="month-prev">←</button>
-                <span class="month-label">${MONTH_NAMES[m]} ${y}</span>
+                <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
                 <button class="month-nav" id="month-next">→</button>
             </div>
             ${psychoToggleHtml()}
@@ -1157,6 +1286,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="pm-list">${rows}</div>`;
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
+        document.getElementById('month-label').onclick = () => {
+            openMonthPicker({ value: { y: monthCursor.y, m: monthCursor.m }, onPick: (py, pm) => { monthCursor.y = py; monthCursor.m = pm; renderMonthView(); } });
+        };
         wirePsychoToggle(root);
     }
 
@@ -1691,6 +1823,42 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
             overlay.querySelectorAll('.cal-cell[data-key]:not([disabled]), .cal-today').forEach(b =>
                 b.addEventListener('click', () => { close(); if (opts.onPick) opts.onPick(b.dataset.key); }));
+        }
+        draw();
+    }
+
+    // Попап выбора МЕСЯЦА — сетка 12 кнопок + год, вместо полноценного календаря по дням (там не
+    // нужна точность до дня, см. запрос юзера). Тот же .cal-overlay/.cal-card, что и у openCalendar,
+    // просто другая сетка внутри. opts.value = {y, m} (m: 0-based), opts.onPick(y, m).
+    function openMonthPicker(opts) {
+        opts = opts || {};
+        let vy = (opts.value && opts.value.y) || +todayKey().slice(0, 4);
+        const selM = opts.value ? opts.value.m : null;
+        const selY = opts.value ? opts.value.y : null;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'cal-overlay';
+        document.body.appendChild(overlay);
+        function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+        function onKey(e) { if (e.key === 'Escape') close(); }
+        document.addEventListener('keydown', onKey);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+        function draw() {
+            const months = MONTH_NAMES.map((name, i) =>
+                `<button class="cal-month-cell${vy === selY && i === selM ? ' sel' : ''}" data-m="${i}" type="button">${name.slice(0, 3)}</button>`
+            ).join('');
+            overlay.innerHTML = `<div class="cal-card">
+                <div class="cal-head">
+                    <button class="cal-nav" data-nav="-1" type="button" aria-label="Предыдущий год">‹</button>
+                    <span class="cal-title">${vy}</span>
+                    <button class="cal-nav" data-nav="1" type="button" aria-label="Следующий год">›</button>
+                </div>
+                <div class="cal-grid cal-months">${months}</div>
+            </div>`;
+            overlay.querySelectorAll('.cal-nav').forEach(b => b.addEventListener('click', () => { vy += (+b.dataset.nav); draw(); }));
+            overlay.querySelectorAll('.cal-month-cell').forEach(b =>
+                b.addEventListener('click', () => { close(); if (opts.onPick) opts.onPick(vy, +b.dataset.m); }));
         }
         draw();
     }
@@ -2559,34 +2727,92 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
 
-    // === «СОБЫТИЕ ДНЯ» (см. renderDayEvent) ===
+    // === «СОБЫТИЕ ДНЯ» / «ЗАДАЧА ДНЯ» ===
+    // Обе модалки открываются для дня, который сейчас пролистан в навигации «День» (см.
+    // renderDayNavControls) — не всегда сегодня, dayModalTargetDate ставит вызывающая сторона.
+    // onDayFieldsChanged — коллбэк, который renderDayEventAndTask регистрирует, чтобы точечно
+    // перерисовать свой блок после автосохранения, без полного ре-рендера всей вкладки.
+    let dayModalTargetDate = todayKey();
+    let onDayFieldsChanged = null;
+
     const dayEventModal = document.getElementById('day-event-modal');
     const dayEventInput = document.getElementById('day-event-input');
-    function openDayEventModal() {
+    function openDayEventModal(dateKey) {
         if (!dayEventModal || !dayEventInput) return;
-        dayEventInput.value = (dashState.dayEvents || {})[todayKey()] || '';
+        dayModalTargetDate = dateKey || todayKey();
+        dayEventInput.value = (dashState.dayEvents || {})[dayModalTargetDate] || '';
         dayEventModal.classList.add('active');
         setTimeout(() => dayEventInput.focus(), 50);
     }
     function closeDayEventModal() {
         if (dayEventModal) dayEventModal.classList.remove('active');
     }
-    const dayEventBtn = document.getElementById('day-event-btn');
-    if (dayEventBtn) dayEventBtn.addEventListener('click', openDayEventModal);
     const dayEventCloseBtn = document.getElementById('day-event-close');
     if (dayEventCloseBtn) dayEventCloseBtn.addEventListener('click', closeDayEventModal);
     if (dayEventModal) dayEventModal.addEventListener('click', (e) => { if (e.target === dayEventModal) closeDayEventModal(); });
     if (dayEventInput) dayEventInput.addEventListener('input', () => {
         if (!dashState.dayEvents) dashState.dayEvents = {};
         const text = dayEventInput.value.trim();
-        if (text) dashState.dayEvents[todayKey()] = text;
-        else delete dashState.dayEvents[todayKey()];
+        if (text) dashState.dayEvents[dayModalTargetDate] = text;
+        else delete dashState.dayEvents[dayModalTargetDate];
         saveProgress();
-        renderDayEvent();
+        if (onDayFieldsChanged) onDayFieldsChanged();
     });
     // Кнопка «Готово»/«Done» на мобильной клавиатуре шлёт keydown Enter — закрываем модалку так же,
     // как крестиком (данные уже сохранены по input выше, закрытие ничего дополнительно не пишет).
     if (dayEventInput) dayEventInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDayEventModal(); } });
+
+    const dayTaskModal = document.getElementById('day-task-modal');
+    const dayTaskInput = document.getElementById('day-task-input');
+    function openDayTaskModal(dateKey) {
+        if (!dayTaskModal || !dayTaskInput) return;
+        dayModalTargetDate = dateKey || todayKey();
+        dayTaskInput.value = ((dashState.dayTasks || {})[dayModalTargetDate] || {}).text || '';
+        dayTaskModal.classList.add('active');
+        setTimeout(() => dayTaskInput.focus(), 50);
+    }
+    function closeDayTaskModal() {
+        if (dayTaskModal) dayTaskModal.classList.remove('active');
+    }
+    const dayTaskCloseBtn = document.getElementById('day-task-close');
+    if (dayTaskCloseBtn) dayTaskCloseBtn.addEventListener('click', closeDayTaskModal);
+    if (dayTaskModal) dayTaskModal.addEventListener('click', (e) => { if (e.target === dayTaskModal) closeDayTaskModal(); });
+    if (dayTaskInput) dayTaskInput.addEventListener('input', () => {
+        if (!dashState.dayTasks) dashState.dayTasks = {};
+        const text = dayTaskInput.value.trim();
+        const prev = dashState.dayTasks[dayModalTargetDate];
+        if (text) dashState.dayTasks[dayModalTargetDate] = { text, done: (prev && prev.done) || false };
+        else delete dashState.dayTasks[dayModalTargetDate];
+        saveProgress();
+        if (onDayFieldsChanged) onDayFieldsChanged();
+    });
+    if (dayTaskInput) dayTaskInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDayTaskModal(); } });
+
+    // Рендерит «Событие дня» (текст) и «Задача дня» (текст + чекбокс) для конкретного dateKey —
+    // вызывается из Дня и normal-mode, и Pro mode (см. renderTaskDayView/renderPsychoDay). onChange
+    // регистрируется в onDayFieldsChanged, чтобы автосохранение из модалок обновляло именно этот блок.
+    function renderDayEventAndTask(container, dateKey, onChange) {
+        if (!container) return;
+        onDayFieldsChanged = onChange;
+        const eventText = (dashState.dayEvents || {})[dateKey] || '';
+        const task = (dashState.dayTasks || {})[dateKey] || null;
+        container.innerHTML = `
+            <div class="day-fields-row">
+                <button type="button" class="day-event-btn" id="open-day-event-btn">Событие дня</button>
+                <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
+            </div>
+            ${eventText ? `<div class="day-event-display show">${eventText}</div>` : ''}
+            ${task ? `<div class="day-task-row${task.done ? ' done' : ''}" id="day-task-toggle"><span class="day-task-check"></span><span class="day-task-text">${task.text}</span></div>` : ''}`;
+        document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
+        document.getElementById('open-day-task-btn').addEventListener('click', () => openDayTaskModal(dateKey));
+        const taskToggle = document.getElementById('day-task-toggle');
+        if (taskToggle) taskToggle.addEventListener('click', () => {
+            if (!dashState.dayTasks || !dashState.dayTasks[dateKey]) return;
+            dashState.dayTasks[dateKey].done = !dashState.dayTasks[dateKey].done;
+            saveProgress();
+            renderDayEventAndTask(container, dateKey, onChange);
+        });
+    }
 
     // === ТУМБЛЕР PRO MODE (бывший psycho mode) — под замком подписки, см. HANDOFF.md §15 ===
     const promodeLockIcon = document.getElementById('promode-lock-icon');

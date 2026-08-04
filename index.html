@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=22">
+    <link rel="stylesheet" href="habbittracker.css?v=23">
 </head>
 <body>
 
@@ -59,17 +59,6 @@
                 <button class="icon-btn" id="profile-btn" type="button" aria-label="Профиль и вход"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></button>
                 <button class="icon-btn" id="help-btn" type="button" aria-label="Как это работает">?</button>
             </div>
-        </div>
-        <div class="dash-header">
-            <div class="dash-header-row">
-                <span class="dash-date" id="dash-date">—</span>
-                <button class="day-event-btn" id="day-event-btn" type="button">Событие дня</button>
-                <div class="dash-level">
-                    <span class="level-label">уровень</span>
-                    <span class="level-value" id="dash-level-value">1</span>
-                </div>
-            </div>
-            <div class="day-event-display" id="day-event-display"></div>
         </div>
 
         <!-- Контекстная подсказка онбординга -->
@@ -252,12 +241,25 @@
         </div>
     </section>
 
-    <!-- МОДАЛКА: СОБЫТИЕ ДНЯ — только заголовок и одно поле ввода, автосохранение как в чек-апе -->
+    <!-- МОДАЛКА: СОБЫТИЕ ДНЯ — только заголовок и одно поле ввода, автосохранение как в чек-апе.
+         Открывается для того дня, который сейчас пролистан в новой навигации «День», см.
+         renderDayNavControls/dayModalTargetDate в habbittracker.js. -->
     <div id="day-event-modal" class="habit-settings-modal">
         <div class="habit-settings-content">
             <div class="habit-settings-header"><h3>Событие дня</h3><button class="habit-settings-close" id="day-event-close">✕</button></div>
             <div class="habit-settings-body">
                 <input type="text" id="day-event-input" enterkeyhint="done" class="formula-input" maxlength="200" placeholder="запиши самый запоминающийся момент">
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛКА: ЗАДАЧА ДНЯ — тот же паттерн, что «Событие дня», но задачу можно вычёркивать
+         (флаг done) — сама отметка делается кликом по строке под датой, не в этой модалке. -->
+    <div id="day-task-modal" class="habit-settings-modal">
+        <div class="habit-settings-content">
+            <div class="habit-settings-header"><h3>Задача дня</h3><button class="habit-settings-close" id="day-task-close">✕</button></div>
+            <div class="habit-settings-body">
+                <input type="text" id="day-task-input" enterkeyhint="done" class="formula-input" maxlength="200" placeholder="одна главная задача на день">
             </div>
         </div>
     </div>
@@ -375,7 +377,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=22"></script>
-    <script type="module" src="auth.js?v=22"></script>
+    <script src="habbittracker.js?v=23"></script>
+    <script type="module" src="auth.js?v=23"></script>
 </body>
 </html>
