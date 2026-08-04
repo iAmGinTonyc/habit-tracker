@@ -1147,8 +1147,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
         renderTopNavSlot(dayNavHeaderHtml(dateKey, 'task-day-nav'));
         root.innerHTML = `
-            <div id="task-day-fields"></div>
             ${taskViewToggleHtml()}
+            <div id="task-day-fields"></div>
             ${habits.length ? `<div class="task-day-list${isFuture ? ' future' : ''}">${rows}</div>` : '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
             <div id="task-day-add"></div>`;
         wireDayNavHeader('task-day-nav', dateKey, (newKey) => { currentTaskDate = newKey; renderTaskDayView(newKey); });
