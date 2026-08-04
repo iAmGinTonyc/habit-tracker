@@ -405,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Экран выбора категории (только у нового юзера, между интро и дашбордом). onDone получает
     // либо массив {text,area} выбранной категории, либо null («определю задачи самостоятельно»
-    // — пустой список привычек, юзер добавляет через «+ добавить привычку» в «Задачах»).
+    // — пустой список привычек, юзер добавляет через «+ добавить задачу» в «Задачах»).
     function showCategoryPicker(onDone) {
         const screen = document.getElementById('category-picker-screen');
         const carousel = document.getElementById('cat-picker-carousel');
@@ -812,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
             add.type = 'button';
             add.className = 'dash-habit-add-btn';
             add.id = 'add-habit-btn';
-            add.textContent = '+ добавить привычку';
+            add.textContent = '+ добавить задачу';
             add.addEventListener('click', () => openNewHabitModal(todayKey()));
             list.appendChild(add);
         } else {
@@ -944,13 +944,13 @@ document.addEventListener('DOMContentLoaded', () => {
         wireTaskViewToggle(root);
         if (FEATURES.lifeWheel) renderLifeWheel('month', 'life-wheel-month', y, m);
 
-        // «+ добавить привычку» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15),
+        // «+ добавить задачу» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15),
         // сразу открывает модалку настроек (см. openNewHabitModal) вместо инлайн-инпута. Лимит
         // считает только регулярные — разовых из «Месяца» не бывает, но лимит общий на регулярные.
         const addBox = document.getElementById('month-habit-add');
         if (addBox) {
             if (habits.length < MAX_HABITS) {
-                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-month">+ добавить привычку</button>`;
+                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-month">+ добавить задачу</button>`;
                 addBox.querySelector('#add-habit-btn-month').addEventListener('click', () => openNewHabitModal(todayKey()));
             } else {
                 addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
@@ -1094,13 +1094,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         root.querySelectorAll('.task-day-settings').forEach(s => s.addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(+s.dataset.idx); }));
 
-        // «+ добавить привычку» — сразу открывает модалку настроек (юзер попросил вместо инлайн-
+        // «+ добавить задачу» — сразу открывает модалку настроек (юзер попросил вместо инлайн-
         // инпута), разовые задачи из этой кнопки привязываются к dateKey — дню, что сейчас открыт.
         // Лимит MAX_HABITS считает только регулярные — разовые в него не входят (см. openNewHabitModal).
         const addBox = document.getElementById('task-day-add');
         if (addBox) {
             if (regularHabits.length < MAX_HABITS) {
-                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-day">+ добавить привычку</button>`;
+                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-day">+ добавить задачу</button>`;
                 addBox.querySelector('#add-habit-btn-day').addEventListener('click', () => openNewHabitModal(dateKey));
             } else {
                 addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
@@ -1953,7 +1953,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на привычку, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
         { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
         { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 10 регулярных).' },
-        { target: () => document.querySelector('.day-fields-row'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, тоже с перечёркиванием.' },
+        { target: () => document.getElementById('task-day-fields'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, текст появляется прямо справа от кнопки.' },
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
         { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на привычку — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
         { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
@@ -2832,12 +2832,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const eventText = (dashState.dayEvents || {})[dateKey] || '';
         const task = (dashState.dayTasks || {})[dateKey] || null;
         container.innerHTML = `
-            <div class="day-fields-row">
+            <div class="day-field-row">
                 <button type="button" class="day-event-btn" id="open-day-event-btn">Событие дня</button>
-                <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
+                ${eventText ? `<span class="day-event-inline">${eventText}</span>` : ''}
             </div>
-            ${eventText ? `<div class="day-event-display show">${eventText}</div>` : ''}
-            ${task ? `<div class="day-task-row${task.done ? ' done' : ''}" id="day-task-toggle"><span class="day-task-text">Задача дня: ${task.text}</span></div>` : ''}`;
+            <div class="day-field-row">
+                <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
+                ${task ? `<span class="day-task-inline${task.done ? ' done' : ''}" id="day-task-toggle">${task.text}</span>` : ''}
+            </div>`;
         document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
         document.getElementById('open-day-task-btn').addEventListener('click', () => openDayTaskModal(dateKey));
         const taskToggle = document.getElementById('day-task-toggle');

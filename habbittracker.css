@@ -144,16 +144,14 @@
    .loading-text { font-size: 24px; font-style: italic; color: #666; animation: pulseText 2s infinite; }
    @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
    
-   .day-fields-row { display: flex; gap: 8px; margin: 10px 0; }
+   .day-field-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
    .day-event-btn { flex: 0 0 auto; height: 26px; padding: 0 12px; border: 1px solid #e0e0e0; border-radius: 13px; background: #fff; color: #666; font-size: 12px; font-family: inherit; cursor: pointer; transition: all 0.2s; }
    .day-event-btn:hover { border-color: #111; color: #111; }
-   .day-event-display { margin-top: 2px; margin-bottom: 8px; font-size: 13px; color: #555; line-height: 1.4; display: none; }
-   .day-event-display.show { display: block; }
-   .day-task-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; }
-   .day-task-text { font-size: 14px; color: #111; position: relative; transition: color 0.3s ease; }
-   .day-task-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #aaa; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-   .day-task-row.done .day-task-text { color: #aaa; }
-   .day-task-row.done .day-task-text::after { width: 100%; }
+   .day-event-inline { font-size: 13px; color: #e1bf50; line-height: 1.4; }
+   .day-task-inline { font-size: 13px; color: #9f5a05; position: relative; cursor: pointer; transition: color 0.3s ease; }
+   .day-task-inline::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #aaa; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+   .day-task-inline.done { color: #aaa; }
+   .day-task-inline.done::after { width: 100%; }
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
    .task-day-list { margin-top: 6px; }
