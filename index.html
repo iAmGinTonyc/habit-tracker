@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=24">
+    <link rel="stylesheet" href="habbittracker.css?v=25">
 </head>
 <body>
 
@@ -55,10 +55,9 @@
     <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
     <section id="dashboard-screen" class="hidden">
         <div class="dash-toprow">
-            <div class="dash-topright">
-                <button class="icon-btn" id="profile-btn" type="button" aria-label="Профиль и вход"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></button>
-                <button class="icon-btn" id="help-btn" type="button" aria-label="Как это работает">?</button>
-            </div>
+            <button class="icon-btn" id="help-btn" type="button" aria-label="Как это работает">?</button>
+            <div class="top-nav-slot" id="top-nav-slot"></div>
+            <button class="icon-btn" id="profile-btn" type="button" aria-label="Профиль и вход"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></button>
         </div>
 
         <!-- Контекстная подсказка онбординга -->
@@ -377,7 +376,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=24"></script>
-    <script type="module" src="auth.js?v=24"></script>
+    <script src="habbittracker.js?v=25"></script>
+    <script type="module" src="auth.js?v=25"></script>
 </body>
 </html>

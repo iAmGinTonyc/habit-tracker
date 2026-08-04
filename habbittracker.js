@@ -579,6 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // центру»). Сбрасываем скролл к началу при каждом переключении вкладки.
         const dashContent = document.querySelector('.dash-content');
         if (dashContent) dashContent.scrollTop = 0;
+        renderTopNavSlot(''); // «Задачи» (viewName === 'month') сама заполнит слот заново ниже
         document.querySelectorAll('.dash-view').forEach(view => view.classList.remove('active'));
         const target = document.getElementById(`view-${viewName}`);
         if (target) target.classList.add('active'); // синхронно — иначе быстрые переключения оставляют 2 активных вида
@@ -724,6 +725,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return fdt(dt.getFullYear(), dt.getMonth(), dt.getDate());
     }
 
+    // Верхняя панель (index.html, .dash-toprow) — единый ряд [?] — [нав-слот] — [профиль].
+    // Слот заполняют renderMonthView/renderTaskDayView/renderPsychoDay/renderPsychoMonth своей
+    // навигацией (стрелки + подпись даты/месяца), а switchView() чистит его при уходе с «Задач».
+    function renderTopNavSlot(html) {
+        const slot = document.getElementById('top-nav-slot');
+        if (slot) slot.innerHTML = html || '';
+    }
+    function monthHeadHtml(y, m) {
+        return `<div class="month-head">
+            <button class="month-nav" id="month-prev">←</button>
+            <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
+            <button class="month-nav" id="month-next">→</button>
+        </div>`;
+    }
+
     // Навигация «‹ 3 августа, понедельник ›» + кнопка календаря — общая и для normal-mode «День»
     // (renderTaskDayView), и для Pro mode (renderPsychoDay). idPrefix различает элементы двух видов
     // на странице (если вдруг оба когда-нибудь окажутся в DOM одновременно). onChange(dateKey)
@@ -860,9 +876,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // цели/лимиты — старая вкладка «День» была скрыта FEATURES.dayTab, но UI никуда не делся, см.
     // renderPsychoMetrics) / «Месяц» (сводка сумм за месяц, см. renderPsychoMonth).
     let psychoSubView = 'day';
-    // Тот же переключатель «День»/«Месяц», но для ОБЫЧНОГО режима (не Pro) — «Месяц» дефолт (см.
-    // комментарий у вызова в renderMonthView, дефолт менять нельзя из-за онбординг-тура).
-    let taskViewMode = 'month';
+    // Тот же переключатель «День»/«Месяц», но для ОБЫЧНОГО режима (не Pro) — «День» дефолт (базовая
+    // вкладка приложения, юзер попросил сменить с «Месяца»). Тур DAY_TOUR адаптирован под это —
+    // шаг с тепловой картой сам переключает подвид на 'month' перед показом (см. showCoachStep).
+    let taskViewMode = 'day';
     let currentTaskDate = todayKey(); // дата, открытая в normal-mode «День» — листается стрелками/календарём
     const MONTH_NAMES = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const WD_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
@@ -893,12 +910,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const st = monthStats();
 
+        renderTopNavSlot(monthHeadHtml(y, m));
         root.innerHTML = `
-            <div class="month-head">
-                <button class="month-nav" id="month-prev">←</button>
-                <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
-                <button class="month-nav" id="month-next">→</button>
-            </div>
             ${taskViewToggleHtml()}
             <div class="month-summary">
                 <div class="month-stat"><span>${st.done}</span>выполнено</div>
@@ -1128,11 +1141,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const done = isDone(h.uid, dateKey);
             return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
                 <span class="task-day-text">${h.text}</span>
+                ${streakChip(currentStreak(h.uid))}
                 <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
             </div>`;
         }).join('');
+        renderTopNavSlot(dayNavHeaderHtml(dateKey, 'task-day-nav'));
         root.innerHTML = `
-            ${dayNavHeaderHtml(dateKey, 'task-day-nav')}
             <div id="task-day-fields"></div>
             ${taskViewToggleHtml()}
             ${habits.length ? `<div class="task-day-list${isFuture ? ' future' : ''}">${rows}</div>` : '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
@@ -1211,8 +1225,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // юзер («фильтрацию днями подредактировать»). «Событие дня»/«Задача дня» сюда НЕ добавляем —
         // это фичи normal-mode «Задачи» (см. renderTaskDayView), Pro mode их не касается. Сама
         // механика накопления значений (renderPsychoMetrics — живой ввод «+ значение») не менялась.
+        renderTopNavSlot(dayNavHeaderHtml(dateKey, 'psycho-nav'));
         root.innerHTML = `
-            ${dayNavHeaderHtml(dateKey, 'psycho-nav')}
             ${psychoToggleHtml()}
             <div id="psycho-list-tasks"></div>`;
         wirePsychoToggle(root);
@@ -1264,12 +1278,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="pm-val ${over ? 'over' : ''}"><b>${fmtNum(sums[mt.id])}</b> / ${fmtNum(monthlyTarget)} ${mt.unit || ''}</span></div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div></div>`;
         }).join('');
+        renderTopNavSlot(monthHeadHtml(y, m));
         root.innerHTML = `
-            <div class="month-head">
-                <button class="month-nav" id="month-prev">←</button>
-                <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
-                <button class="month-nav" id="month-next">→</button>
-            </div>
             ${psychoToggleHtml()}
             <div class="month-hint">сумма за месяц · цель = дневная × ${days} дн.</div>
             <div class="pm-list">${rows}</div>`;
@@ -1958,18 +1968,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================
     //   ОНБОРДИНГ: КОАЧМАРКИ + КОНТЕКСТНЫЕ ПОДСКАЗКИ
     // =========================================
+    // Полный тур по всем вкладкам (юзер попросил расширить, когда «День» стал дефолтной подвкладкой
+    // «Задач» вместо «Месяца» — старый тур целился только в тепловую карту). Шаги с taskViewMode
+    // переключают normal-mode подвид «Задач» перед показом (см. showCoachStep) — сама вкладка
+    // «Задачи» не меняется, это переключение ВНУТРИ неё. Остальные цели (психо-тумблер, кнопки
+    // нижнего меню) — глобальный chrome вне .dash-content (index.html), в DOM всегда, независимо
+    // от активной вкладки, переключать вкладку под них не нужно.
     const DAY_TOUR = [
-        { text: 'Привет! Это трекер привычек и твоего состояния. 14 дней — бесплатно, дальше нужна подписка (либо бесплатные недели за приглашённых друзей). Покажу за 20 секунд, что где.' },
+        { text: 'Привет! Это трекер привычек и твоего состояния. 14 дней — бесплатно, дальше нужна подписка (либо бесплатные недели за приглашённых друзей). Покажу за минуту, что где.' },
+        { target: () => document.getElementById('help-btn'), text: 'Этот значок открывает тур заново в любой момент, если что-то забудешь.' },
         { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID, статус подписки, правила скидки и бонусных недель за друзей. Добавляй друзей и смотри их успехи.' },
+        { target: () => document.querySelector('#top-nav-slot .day-nav-row'), taskViewMode: 'day', text: 'Стрелками листаешь дни вперёд-назад, календарь справа — прыжок на любую дату.' },
+        { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на привычку, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
+        { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
+        { target: () => document.getElementById('new-habit-input-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
+        { target: () => document.querySelector('.day-fields-row'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, тоже с перечёркиванием.' },
+        { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть тепловую карту истории и общий прогресс.' },
         // Пока сегодняшний день не отмечен, клетки истории скрыты за строкой-«шапкой» (см.
         // .hm-row-pending в CSS/renderMonthView) — целимся в саму строку (.hm-row-head), а не в
         // .hm-cell.today, который до первой отметки физически не виден и не кликабелен.
-        { target: () => document.querySelector('.hm-row-head'), text: 'Нажми на привычку в списке, чтобы отметить её на сегодня — откроются клетки истории за месяц. За регулярность копится серия.', requiresHabits: true },
-        { target: () => document.querySelector('.hm-settings'), text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
-        { target: () => document.getElementById('new-habit-input') || document.querySelector('.dash-habit-limit'), text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
-        { target: () => document.getElementById('life-wheel-month'), text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
+        { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Клик по клетке отмечает день — в том числе задним числом, если пропустил.', requiresHabits: true },
+        { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
         { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
-        { target: () => document.querySelector('.view-switcher'), text: 'Задачи — твой список и история по дням. Чек-ап — сон, настроение, энергия и здоровье. Питание — дневник еды.' }
+        { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
+        { target: () => document.getElementById('btn-morning'), text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
+        { target: () => document.getElementById('btn-evening'), text: 'Вечер — итог дня, благодарность и что улучшить завтра.', feature: 'legacyCheckinFields' },
+        { target: () => document.getElementById('btn-food'), text: 'Питание — дневник завтрака/обеда/ужина и сводка за неделю.' }
+        // «Питомец» (.view-btn[data-view="pet"]) в тур не включён — кнопка скрыта насовсем через
+        // CSS (display:none, см. habbittracker.css), это не активная фича, а не флаг вроде games/
+        // legacyCheckinFields, которые можно было бы просто прогейтить через FEATURES.
     ];
 
     const VIEW_HINTS = {
@@ -1998,6 +2025,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (i < 0 || i >= tourSteps.length) { endTour(); return; }
         tourIdx = i;
         const step = tourSteps[i];
+        // Шаги внутри «Задач» указывают нужный normal-mode подвид (taskViewMode) — переключаем и
+        // перерисовываем ПЕРЕД поиском таргета, иначе элемент другого подвида ещё не в DOM.
+        if (step.taskViewMode && step.taskViewMode !== taskViewMode) { taskViewMode = step.taskViewMode; renderMonthView(); }
         const el = typeof step.target === 'function' ? step.target() : (step.target ? document.querySelector(step.target) : null);
         if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         setTimeout(() => positionCoach(el, step, i), el ? 320 : 0);
