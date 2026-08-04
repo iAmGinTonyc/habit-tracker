@@ -150,23 +150,16 @@
    .day-event-display { margin-top: 2px; margin-bottom: 8px; font-size: 13px; color: #555; line-height: 1.4; display: none; }
    .day-event-display.show { display: block; }
    .day-task-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; }
-   .day-task-check { width: 18px; height: 18px; flex: 0 0 auto; border: 1.5px solid #ccc; border-radius: 5px; position: relative; }
-   .day-task-row.done .day-task-check { background: #111; border-color: #111; }
-   .day-task-row.done .day-task-check::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
    .day-task-text { font-size: 14px; color: #111; }
    .day-task-row.done .day-task-text { color: #aaa; text-decoration: line-through; }
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
    .task-day-list { margin-top: 6px; }
    .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
-   .task-day-check { width: 19px; height: 19px; flex: 0 0 auto; border: 1.6px solid #cfcfcf; border-radius: 5px; position: relative; transition: all 0.2s ease; }
-   .task-day-row.done .task-day-check { background: #111; border-color: #111; }
-   .task-day-row.done .task-day-check::after { content: ''; position: absolute; left: 6px; top: 2.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
    .task-day-text { flex: 1; font-size: 16px; color: #111; }
    .task-day-row.done .task-day-text { color: #bbb; text-decoration: line-through; }
    .task-day-settings { color: #ccc; cursor: pointer; padding: 4px; }
    .task-day-list.future .task-day-row { opacity: 0.4; cursor: default; }
-   .task-day-list.future .task-day-check { pointer-events: none; }
    .dash-level { display: flex; align-items: baseline; gap: 6px; }
    .level-label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; }
    .level-value { font-size: 18px; font-weight: 700; color: #111; line-height: 1; transition: transform 0.3s ease; display: inline-block; }

@@ -1127,7 +1127,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const rows = habits.map((h, idx) => {
             const done = isDone(h.uid, dateKey);
             return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
-                <span class="task-day-check"></span>
                 <span class="task-day-text">${h.text}</span>
                 <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
             </div>`;
@@ -2792,7 +2791,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
             </div>
             ${eventText ? `<div class="day-event-display show">${eventText}</div>` : ''}
-            ${task ? `<div class="day-task-row${task.done ? ' done' : ''}" id="day-task-toggle"><span class="day-task-check"></span><span class="day-task-text">${task.text}</span></div>` : ''}`;
+            ${task ? `<div class="day-task-row${task.done ? ' done' : ''}" id="day-task-toggle"><span class="day-task-text">Задача дня: ${task.text}</span></div>` : ''}`;
         document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
         document.getElementById('open-day-task-btn').addEventListener('click', () => openDayTaskModal(dateKey));
         const taskToggle = document.getElementById('day-task-toggle');
