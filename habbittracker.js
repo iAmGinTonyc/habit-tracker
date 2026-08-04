@@ -11,6 +11,7 @@ const FEATURES = {
     legacyCheckinFields: false, // старые поля утро/вечер сверх «качество сна + настроение», и вкладка «Вечер»
     swipeNav: false, // свайп пальцем между вкладками — отключено по просьбе (некрасиво смотрелось на десктопе/Telegram Desktop)
     dayTab: false, // вкладка «День» — заменена вкладкой «Задачи» (бывший «Месяц»), см. HANDOFF.md §15
+    lifeWheel: false, // колесо жизни (месяц + поле «Сферы» в настройках привычки) — временно скрыто по просьбе юзера
 };
 // Пока настоящая проверка подписки не подключена (Stars-оплата ещё не проверена живьём),
 // window.hasActiveSubscription всегда false — Pro mode показывает пейволл при любом клике.
@@ -52,6 +53,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!FEATURES.dayTab) {
         const el = document.querySelector('.view-btn[data-view="habits"]');
         if (el) el.style.display = 'none';
+    }
+    if (!FEATURES.lifeWheel) {
+        document.querySelectorAll('.life-wheel-field, .life-wheel').forEach(el => el.style.display = 'none');
     }
 
     // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
@@ -101,6 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let timerInterval;
     let reminderInterval;
     let currentEditIndex = null;
+    let isCreatingHabit = false; // true между openNewHabitModal и close() — саve/delete ветвятся по этому флагу
+    let newHabitContextDate = null; // день, к которому привяжется РАЗОВАЯ задача при создании (см. openNewHabitModal)
     let currentTrainingGame = null;
     let trainingGameInterval = null;
     let isHistoryInitialized = false;
@@ -732,11 +738,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const slot = document.getElementById('top-nav-slot');
         if (slot) slot.innerHTML = html || '';
     }
+    // Та же разметка/классы, что у dayNavHeaderHtml (юзер попросил одинаковый шрифт подписи и
+    // одинаковые отступы между стрелками в обеих шапках) — 4-я кнопка открывает пикер месяца
+    // (openMonthPicker) вместо клика по названию, тем же паттерном, что календарь у дня.
     function monthHeadHtml(y, m) {
-        return `<div class="month-head">
-            <button class="month-nav" id="month-prev">←</button>
-            <span class="month-label" id="month-label" title="Открыть выбор месяца">${MONTH_NAMES[m]} ${y}</span>
-            <button class="month-nav" id="month-next">→</button>
+        return `<div class="checkin-header-row day-nav-row">
+            <button class="day-nav-arrow" id="month-prev" type="button" aria-label="Предыдущий месяц">←</button>
+            <span class="checkin-date-label day-nav-label">${MONTH_NAMES[m]} ${y}</span>
+            <button class="day-nav-arrow" id="month-next" type="button" aria-label="Следующий месяц">→</button>
+            <button class="history-btn" id="month-cal" title="Открыть выбор месяца">${CALENDAR_ICON}</button>
         </div>`;
     }
 
@@ -767,45 +777,51 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!list) return;
         list.innerHTML = '';
 
-        dashState.habits.forEach((habit, index) => {
+        // Та же группировка «Регулярные»/«Разовые», что в renderTaskDayView (эта вьюха всегда про
+        // сегодня, поэтому разовые фильтруются по today). data-idx считается через indexOf в
+        // ПОЛНОМ dashState.habits, не по позиции в отфильтрованном списке.
+        const allHabits = dashState.habits;
+        const regularHabits = allHabits.filter(h => (h.type || 'regular') === 'regular');
+        const oneTimeHabits = allHabits.filter(h => h.type === 'oneTime' && h.date === todayKey());
+        const renderRow = (habit) => {
+            const index = allHabits.indexOf(habit);
             const row = document.createElement('div');
             row.className = `dash-habit-row ${habit.completed ? 'completed' : ''}`;
             let subtextHtml = '';
             if (habit.triggerText) subtextHtml += `<span>после того как ${habit.triggerText}</span>`;
             if (habit.reminderTime) subtextHtml += `<span>напомнить в ${habit.reminderTime}</span>`;
-            row.innerHTML = `<div class="habit-main-line"><span class="habit-check"></span><span class="dash-habit-text">${habit.text}</span>${streakChip(currentStreak(habit.uid))}<span class="habit-settings-icon">${DOTS}</span></div>${subtextHtml ? `<div class="habit-subtext">${subtextHtml}</div>` : ''}`;
+            row.innerHTML = `<div class="habit-main-line"><span class="habit-check"></span><span class="dash-habit-text">${habit.text}</span>${habit.type === 'oneTime' ? '' : streakChip(currentStreak(habit.uid))}<span class="habit-settings-icon">${DOTS}</span></div>${subtextHtml ? `<div class="habit-subtext">${subtextHtml}</div>` : ''}`;
             row.querySelector('.habit-check').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.dash-habit-text').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.habit-settings-icon').addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(index); });
             list.appendChild(row);
-        });
+        };
+        if (regularHabits.length) {
+            list.insertAdjacentHTML('beforeend', '<div class="task-group-label">Регулярные</div>');
+            regularHabits.forEach(renderRow);
+        }
+        if (oneTimeHabits.length) {
+            list.insertAdjacentHTML('beforeend', '<div class="task-group-label">Разовые</div>');
+            oneTimeHabits.forEach(renderRow);
+        }
 
-        // добавление новой привычки (до лимита MAX_HABITS)
-        if (dashState.habits.length < MAX_HABITS) {
-            const add = document.createElement('div');
-            add.className = 'dash-habit-add';
-            // autocomplete="off" Chrome иногда игнорирует для полей, похожих на логин (эвристика
-            // сохранённых паролей) — "new-password" он уважает надёжнее, хоть поле и не пароль.
-            add.innerHTML = `<input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}">`;
+        // добавление новой привычки (до лимита MAX_HABITS, разовые в лимит не входят) — сразу
+        // открывает модалку настроек (см. openNewHabitModal), а не инлайн-инпут.
+        if (regularHabits.length < MAX_HABITS) {
+            const add = document.createElement('button');
+            add.type = 'button';
+            add.className = 'dash-habit-add-btn';
+            add.id = 'add-habit-btn';
+            add.textContent = '+ добавить привычку';
+            add.addEventListener('click', () => openNewHabitModal(todayKey()));
             list.appendChild(add);
-            const inp = add.querySelector('#new-habit-input');
-            inp.addEventListener('keydown', e => {
-                if (e.key !== 'Enter') return;
-                const v = inp.value.trim();
-                if (!v) return;
-                dashState.habits.push({ text: v, completed: false, uid: newUid(), areas: [] });
-                saveProgress();
-                renderDashboardHabits();
-                const ni = document.getElementById('new-habit-input');
-                if (ni) ni.focus();
-            });
         } else {
             const note = document.createElement('div');
             note.className = 'dash-habit-limit';
             note.textContent = `Максимум ${MAX_HABITS} привычек`;
             list.appendChild(note);
         }
-        renderLifeWheel('day', 'life-wheel-day'); // колесо отражает выполнение
+        if (FEATURES.lifeWheel) renderLifeWheel('day', 'life-wheel-day'); // колесо отражает выполнение
     }
 
     function updateRowStreak(rowElement, uid) {
@@ -829,7 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rowElement.classList.toggle('completed', nowDone);
         setHistory(habit.uid, todayKey(), nowDone); // постоянный лог за сегодня
         updateRowStreak(rowElement, habit.uid);
-        renderLifeWheel('day', 'life-wheel-day'); // колесо обновляется при отметке
+        if (FEATURES.lifeWheel) renderLifeWheel('day', 'life-wheel-day'); // колесо обновляется при отметке
 
         // XP — только при выполнении и не больше одного раза за день (без фарма)
         if (nowDone && habit.xpDate !== todayKey()) {
@@ -898,7 +914,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (taskViewMode === 'day') { renderTaskDayView(currentTaskDate); return; }
         const days = daysInMonth(y, m);
         const dayList = Array.from({ length: days }, (_, i) => i + 1);
-        const habits = dashState.habits || [];
+        // Разовые задачи в «Месяц» не попадают — у них нет понятия «прогресс за месяц», они видны
+        // только в «Дне» того дня, для которого созданы (см. renderTaskDayView, openNewHabitModal).
+        const habits = (dashState.habits || []).filter(h => (h.type || 'regular') === 'regular');
         const tKey = todayKey();
 
         // сводка месяца
@@ -921,28 +939,19 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="month-hint">нажми на привычку, чтобы открыть календарь отметок</div>
             ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет привычек — добавь ниже.</p>`}
             <div id="month-habit-add"></div>
-            <div class="month-wheel-block">
-                <div id="life-wheel-month"></div>
-            </div>
+            ${FEATURES.lifeWheel ? `<div class="month-wheel-block"><div id="life-wheel-month"></div></div>` : ''}
         `;
         wireTaskViewToggle(root);
-        renderLifeWheel('month', 'life-wheel-month', y, m);
+        if (FEATURES.lifeWheel) renderLifeWheel('month', 'life-wheel-month', y, m);
 
-        // «+ добавить привычку» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15).
-        // Полный ре-рендер вида проще, чем точечно вставлять ещё одну строку тепловой карты.
+        // «+ добавить привычку» — переехало сюда из бывшей вкладки «День» (см. HANDOFF.md §15),
+        // сразу открывает модалку настроек (см. openNewHabitModal) вместо инлайн-инпута. Лимит
+        // считает только регулярные — разовых из «Месяца» не бывает, но лимит общий на регулярные.
         const addBox = document.getElementById('month-habit-add');
         if (addBox) {
-            if (dashState.habits.length < MAX_HABITS) {
-                addBox.innerHTML = `<div class="dash-habit-add"><input type="text" id="new-habit-input" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}"></div>`;
-                const inp = addBox.querySelector('#new-habit-input');
-                inp.addEventListener('keydown', e => {
-                    if (e.key !== 'Enter') return;
-                    const v = inp.value.trim();
-                    if (!v) return;
-                    dashState.habits.push({ text: v, completed: false, uid: newUid(), areas: [] });
-                    saveProgress();
-                    renderMonthView();
-                });
+            if (habits.length < MAX_HABITS) {
+                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-month">+ добавить привычку</button>`;
+                addBox.querySelector('#add-habit-btn-month').addEventListener('click', () => openNewHabitModal(todayKey()));
             } else {
                 addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
             }
@@ -954,7 +963,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // тепловую карту дней на сводку, см. HANDOFF.md). Отметка/снятие отметки за конкретный
             // день теперь только через модалку-календарь (openHabitHistoryCalendar) — открывается
             // кликом по строке, включает и сегодня, и задний числом.
-            habits.forEach((h, hIdx) => {
+            habits.forEach((h) => {
+                // индекс в ПОЛНОМ dashState.habits (не в отфильтрованном habits — тут только
+                // регулярные, см. выше), иначе «⋯» после фильтрации откроет не ту задачу.
+                const hIdx = dashState.habits.indexOf(h);
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
                 const pct = days ? Math.round(monthDone / days * 100) : 0;
@@ -990,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
-        document.getElementById('month-label').onclick = () => {
+        document.getElementById('month-cal').onclick = () => {
             openMonthPicker({ value: { y: monthCursor.y, m: monthCursor.m }, onPick: (py, pm) => { monthCursor.y = py; monthCursor.m = pm; renderMonthView(); } });
         };
     }
@@ -1036,21 +1048,33 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderTaskDayView(dateKey) {
         const root = document.getElementById('view-month');
         if (!root) return;
-        const habits = dashState.habits || [];
+        const allHabits = dashState.habits || [];
+        // «Регулярные» — видны всегда, «Разовые» — только те, что созданы именно на этот день
+        // (см. openNewHabitModal/saveSettings, поле habit.date). Юзер попросил разделение на
+        // категории в рамках одного списка — считаем настоящий индекс в dashState.habits через
+        // indexOf, а не позицию внутри отфильтрованной группы (иначе «⋯» откроет не ту задачу).
+        const regularHabits = allHabits.filter(h => (h.type || 'regular') === 'regular');
+        const oneTimeHabits = allHabits.filter(h => h.type === 'oneTime' && h.date === dateKey);
         const isFuture = dateKey > todayKey();
-        const rows = habits.map((h, idx) => {
-            const done = isDone(h.uid, dateKey);
-            return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
-                <span class="task-day-text">${h.text}</span>
-                ${streakChip(currentStreak(h.uid))}
-                <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
-            </div>`;
-        }).join('');
+        const renderGroup = (list, label) => {
+            if (!list.length) return '';
+            const rows = list.map(h => {
+                const idx = allHabits.indexOf(h);
+                const done = isDone(h.uid, dateKey);
+                return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
+                    <span class="task-day-text">${h.text}</span>
+                    ${h.type === 'oneTime' ? '' : streakChip(currentStreak(h.uid))}
+                    <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
+                </div>`;
+            }).join('');
+            return `<div class="task-group-label">${label}</div><div class="task-day-list${isFuture ? ' future' : ''}">${rows}</div>`;
+        };
+        const listsHtml = renderGroup(regularHabits, 'Регулярные') + renderGroup(oneTimeHabits, 'Разовые');
         renderTopNavSlot(dayNavHeaderHtml(dateKey, 'task-day-nav'));
         root.innerHTML = `
             ${taskViewToggleHtml()}
             <div id="task-day-fields"></div>
-            ${habits.length ? `<div class="task-day-list${isFuture ? ' future' : ''}">${rows}</div>` : '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
+            ${listsHtml || '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
             <div id="task-day-add"></div>`;
         wireDayNavHeader('task-day-nav', dateKey, (newKey) => { currentTaskDate = newKey; renderTaskDayView(newKey); });
         wireTaskViewToggle(root);
@@ -1061,7 +1085,7 @@ document.addEventListener('DOMContentLoaded', () => {
             root.querySelectorAll('.task-day-row').forEach(row => {
                 row.addEventListener('click', (e) => {
                     if (e.target.closest('.task-day-settings')) return;
-                    const h = habits.find(x => x.uid === row.dataset.uid);
+                    const h = allHabits.find(x => x.uid === row.dataset.uid);
                     if (!h) return;
                     const now = toggleHabitForDate(h, dateKey);
                     row.classList.toggle('done', now);
@@ -1070,20 +1094,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         root.querySelectorAll('.task-day-settings').forEach(s => s.addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(+s.dataset.idx); }));
 
-        // «+ добавить привычку» — тот же паттерн, что в шапке тепловой карты (см. renderMonthView).
+        // «+ добавить привычку» — сразу открывает модалку настроек (юзер попросил вместо инлайн-
+        // инпута), разовые задачи из этой кнопки привязываются к dateKey — дню, что сейчас открыт.
+        // Лимит MAX_HABITS считает только регулярные — разовые в него не входят (см. openNewHabitModal).
         const addBox = document.getElementById('task-day-add');
         if (addBox) {
-            if (habits.length < MAX_HABITS) {
-                addBox.innerHTML = `<div class="dash-habit-add"><input type="text" id="new-habit-input-day" maxlength="40" placeholder="+ добавить привычку" autocomplete="new-password" name="habit-${Date.now()}"></div>`;
-                const inp = addBox.querySelector('#new-habit-input-day');
-                inp.addEventListener('keydown', e => {
-                    if (e.key !== 'Enter') return;
-                    const v = inp.value.trim();
-                    if (!v) return;
-                    dashState.habits.push({ text: v, completed: false, uid: newUid(), areas: [] });
-                    saveProgress();
-                    renderTaskDayView(dateKey);
-                });
+            if (regularHabits.length < MAX_HABITS) {
+                addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-day">+ добавить привычку</button>`;
+                addBox.querySelector('#add-habit-btn-day').addEventListener('click', () => openNewHabitModal(dateKey));
             } else {
                 addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
             }
@@ -1186,7 +1204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="pm-list">${rows}</div>`;
         document.getElementById('month-prev').onclick = () => { if (--monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; } renderMonthView(); };
         document.getElementById('month-next').onclick = () => { if (++monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; } renderMonthView(); };
-        document.getElementById('month-label').onclick = () => {
+        document.getElementById('month-cal').onclick = () => {
             openMonthPicker({ value: { y: monthCursor.y, m: monthCursor.m }, onPick: (py, pm) => { monthCursor.y = py; monthCursor.m = pm; renderMonthView(); } });
         };
         wirePsychoToggle(root);
@@ -1934,11 +1952,11 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('#top-nav-slot .day-nav-row'), taskViewMode: 'day', text: 'Стрелками листаешь дни вперёд-назад, календарь справа — прыжок на любую дату.' },
         { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на привычку, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
         { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
-        { target: () => document.getElementById('new-habit-input-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
+        { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 10 регулярных).' },
         { target: () => document.querySelector('.day-fields-row'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, тоже с перечёркиванием.' },
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
         { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на привычку — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
-        { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
+        { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
         { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
         { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
         { target: () => document.getElementById('btn-morning'), text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
@@ -2038,10 +2056,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === НАСТРОЙКИ ПРИВЫЧКИ ===
+    // Модалка используется и для создания НОВОЙ задачи (юзер попросил открывать её сразу при
+    // добавлении, вместо инлайн-инпута), и для правки существующей — общий рендер полей в
+    // openHabitModalCommon, а create/edit различает isCreatingHabit (см. saveSettings).
+    function openNewHabitModal(contextDate) {
+        isCreatingHabit = true;
+        newHabitContextDate = contextDate;
+        currentEditIndex = null;
+        openHabitModalCommon({ text: '', triggerText: '', reminderTime: null, areas: [], type: 'regular' }, 'Новая задача');
+    }
     function openHabitSettings(index) {
+        isCreatingHabit = false;
+        newHabitContextDate = null;
         currentEditIndex = index;
-        const habit = dashState.habits[index];
+        openHabitModalCommon(dashState.habits[index], 'Задача');
+    }
+    function openHabitModalCommon(habit, title) {
         const modal = document.getElementById('habit-settings-modal');
+        const titleEl = document.getElementById('habit-settings-title');
+        if (titleEl) titleEl.textContent = title;
         const nameInput = document.getElementById('setting-name-input');
         const triggerInput = document.getElementById('setting-trigger-input');
         const reminderToggle = document.getElementById('setting-reminder-toggle');
@@ -2053,12 +2086,24 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             reminderToggle.checked = false; timeInput.value = '08:00'; timeInput.disabled = true;
         }
-        // сферы колеса жизни (мультивыбор)
+        // сферы колеса жизни (мультивыбор) — поле спрятано, пока FEATURES.lifeWheel выключен, но
+        // разметку всё равно готовим (данные не теряются, просто не видны)
         const areasBox = document.getElementById('setting-areas');
         if (areasBox) {
             areasBox.innerHTML = LIFE_AREAS.map(a => `<button type="button" class="area-chip${(habit.areas || []).includes(a.id) ? ' sel' : ''}" data-area="${a.id}">${a.name}</button>`).join('');
             areasBox.querySelectorAll('.area-chip').forEach(c => c.addEventListener('click', () => c.classList.toggle('sel')));
         }
+        // Регулярная/Разовая — та же кнопка-пилюля, что День/Месяц (см. taskViewToggleHtml)
+        const typeToggle = document.getElementById('habit-type-toggle');
+        if (typeToggle) {
+            const type = habit.type === 'oneTime' ? 'oneTime' : 'regular';
+            typeToggle.querySelectorAll('.dm-toggle-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.type === type);
+                b.onclick = () => typeToggle.querySelectorAll('.dm-toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+            });
+        }
+        const delBtn0 = document.getElementById('settings-delete-btn');
+        if (delBtn0) delBtn0.style.display = isCreatingHabit ? 'none' : ''; // создание — удалять пока нечего
         modal.classList.add('active');
         // переклонируем кнопки, чтобы сбросить старые обработчики
         const saveBtn = document.getElementById('settings-save-btn').cloneNode(true);
@@ -2069,15 +2114,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('settings-cancel-btn').replaceWith(cancelBtn);
         document.getElementById('habit-settings-close').replaceWith(closeBtn);
         document.getElementById('settings-delete-btn').replaceWith(delBtn);
-        const close = () => { modal.classList.remove('active'); currentEditIndex = null; };
-        saveBtn.addEventListener('click', () => { saveSettings(); close(); });
+        const close = () => { modal.classList.remove('active'); currentEditIndex = null; isCreatingHabit = false; newHabitContextDate = null; };
+        saveBtn.addEventListener('click', () => { saveSettings(close); });
         cancelBtn.addEventListener('click', close);
         closeBtn.addEventListener('click', close);
         delBtn.addEventListener('click', () => {
             if (currentEditIndex === null) return;
             const idx = currentEditIndex;          // фиксируем: confirmDialog асинхронный
             const h = dashState.habits[idx];
-            confirmDialog(`Удалить привычку «${h.text}»?`, () => {
+            confirmDialog(`Удалить «${h.text}»?`, () => {
                 // подчищаем историю удаляемой привычки
                 Object.keys(dashState.history || {}).forEach(d => {
                     if (dashState.history[d][h.uid]) {
@@ -2086,22 +2131,43 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
                 dashState.habits.splice(idx, 1);
-                saveProgress(); renderDashboardHabits();
+                saveProgress(); renderMonthView();
                 close(); // закрываем модалку настроек привычки
             });
         });
         document.querySelector('#setting-reminder-toggle').addEventListener('change', (e) => { timeInput.disabled = !e.target.checked; });
     }
-    function saveSettings() {
-        if (currentEditIndex === null) return;
+    // onSaved — коллбэк close() из openHabitModalCommon; вызывается только если реально сохранили
+    // (пустое имя при СОЗДАНИИ — no-op, модалка остаётся открытой, как раньше вело себя Enter в
+    // пустом инлайн-инпуте).
+    function saveSettings(onSaved) {
         const nameInput = document.getElementById('setting-name-input');
         const name = nameInput ? nameInput.value.trim() : '';
-        if (name) dashState.habits[currentEditIndex].text = name;
-        dashState.habits[currentEditIndex].triggerText = document.getElementById('setting-trigger-input').value.trim();
-        dashState.habits[currentEditIndex].reminderTime = document.getElementById('setting-reminder-toggle').checked ? document.getElementById('setting-time-input').value : null;
+        if (isCreatingHabit && !name) return;
+        const triggerText = document.getElementById('setting-trigger-input').value.trim();
+        const reminderTime = document.getElementById('setting-reminder-toggle').checked ? document.getElementById('setting-time-input').value : null;
         const areasBox = document.getElementById('setting-areas');
-        if (areasBox) dashState.habits[currentEditIndex].areas = [...areasBox.querySelectorAll('.area-chip.sel')].map(c => c.dataset.area);
-        saveProgress(); renderDashboardHabits();
+        const areas = areasBox ? [...areasBox.querySelectorAll('.area-chip.sel')].map(c => c.dataset.area) : [];
+        const typeToggle = document.getElementById('habit-type-toggle');
+        const activeBtn = typeToggle ? typeToggle.querySelector('.dm-toggle-btn.active') : null;
+        const type = (activeBtn && activeBtn.dataset.type === 'oneTime') ? 'oneTime' : 'regular';
+
+        if (isCreatingHabit) {
+            const habit = { text: name, completed: false, uid: newUid(), areas, triggerText, reminderTime, type };
+            if (type === 'oneTime') habit.date = newHabitContextDate || todayKey();
+            dashState.habits.push(habit);
+        } else {
+            if (currentEditIndex === null) return;
+            const h = dashState.habits[currentEditIndex];
+            if (name) h.text = name;
+            h.triggerText = triggerText;
+            h.reminderTime = reminderTime;
+            h.areas = areas;
+            h.type = type;
+            if (type === 'oneTime' && !h.date) h.date = newHabitContextDate || todayKey();
+        }
+        saveProgress(); renderMonthView();
+        if (onSaved) onSaved();
     }
 
     // Горизонтальный скролл выбора времени (шаг 30 минут, 00:00-23:30) — используется вместо

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=27">
+    <link rel="stylesheet" href="habbittracker.css?v=28">
 </head>
 <body>
 
@@ -281,15 +281,19 @@
         </div>
     </div>
 
-    <!-- МОДАЛКА: НАСТРОЙКИ ПРИВЫЧКИ -->
+    <!-- МОДАЛКА: НАСТРОЙКИ ПРИВЫЧКИ/ЗАДАЧИ (создание и редактирование, см. openNewHabitModal/openHabitSettings) -->
     <div id="habit-settings-modal" class="habit-settings-modal">
         <div class="habit-settings-content">
-            <div class="habit-settings-header"><h3>Привычка</h3><button class="habit-settings-close" id="habit-settings-close">✕</button></div>
+            <div class="habit-settings-header"><h3 id="habit-settings-title">Привычка</h3><button class="habit-settings-close" id="habit-settings-close">✕</button></div>
             <div class="habit-settings-body">
+                <div class="dm-toggle" id="habit-type-toggle">
+                    <button type="button" class="dm-toggle-btn active" data-type="regular">Регулярная</button>
+                    <button type="button" class="dm-toggle-btn" data-type="oneTime">Разовая</button>
+                </div>
                 <div class="setting-field"><label class="setting-label">Название</label><input type="text" id="setting-name-input" class="formula-input" maxlength="40" placeholder="Название привычки"></div>
                 <div class="setting-field"><label class="setting-label">Я сделаю это после того, как</label><input type="text" id="setting-trigger-input" class="formula-input" placeholder="например, выпью кофе"></div>
                 <div class="setting-reminder"><div class="toggle-wrapper"><input type="checkbox" id="setting-reminder-toggle" class="toggle-checkbox"><label for="setting-reminder-toggle" class="toggle-label">Напомнить в:</label></div><input type="time" id="setting-time-input" class="time-input" disabled></div>
-                <div class="setting-field"><label class="setting-label">Сферы колеса жизни</label><div id="setting-areas" class="setting-areas"></div></div>
+                <div class="setting-field life-wheel-field"><label class="setting-label">Сферы колеса жизни</label><div id="setting-areas" class="setting-areas"></div></div>
             </div>
             <div class="habit-settings-footer"><button class="settings-btn delete" id="settings-delete-btn">Удалить</button><span class="settings-footer-spacer"></span><button class="settings-btn cancel" id="settings-cancel-btn">Отмена</button><button class="settings-btn save" id="settings-save-btn">Сохранить</button></div>
         </div>
@@ -376,7 +380,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=27"></script>
-    <script type="module" src="auth.js?v=27"></script>
+    <script src="habbittracker.js?v=28"></script>
+    <script type="module" src="auth.js?v=28"></script>
 </body>
 </html>

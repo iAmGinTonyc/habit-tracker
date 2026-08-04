@@ -158,12 +158,14 @@
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
    .task-day-list { margin-top: 6px; }
    .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
-   .task-day-text { flex: 1; font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
+   .task-day-text { font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
    .task-day-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
    .task-day-row.done .task-day-text { color: #bbb; }
    .task-day-row.done .task-day-text::after { width: 100%; }
    .task-day-row.done .dash-habit-streak, .task-day-row.done .dash-habit-streak .flame { color: #cbcbcb; }
-   .task-day-settings { color: #ccc; cursor: pointer; padding: 4px; }
+   .task-day-settings { color: #ccc; cursor: pointer; padding: 4px; margin-left: auto; }
+   .task-group-label { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 0.6px; margin: 18px 0 4px; }
+   .task-group-label:first-child { margin-top: 0; }
    .task-day-list.future .task-day-row { opacity: 0.4; cursor: default; }
    .dash-level { display: flex; align-items: baseline; gap: 6px; }
    .level-label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; }
@@ -185,22 +187,21 @@
    .habit-check:hover { border-color: #111; }
    .dash-habit-row.completed .habit-check { background: #111; border-color: #111; }
    .dash-habit-row.completed .habit-check::after { content: ''; position: absolute; left: 6px; top: 2.5px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
-   .dash-habit-text { flex: 1; font-size: 18px; color: #111; font-weight: 500; position: relative; cursor: pointer; transition: color 0.3s ease; }
+   .dash-habit-text { font-size: 18px; color: #111; font-weight: 500; position: relative; cursor: pointer; transition: color 0.3s ease; }
    .dash-habit-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
    .dash-habit-row.completed .dash-habit-text { color: #bbb; }
    .dash-habit-row.completed .dash-habit-text::after { width: 100%; }
    .dash-habit-streak { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: #444; margin-right: 10px; flex-shrink: 0; }
    .dash-habit-streak .flame { color: #555; }
    .dash-habit-row.completed .dash-habit-streak, .dash-habit-row.completed .dash-habit-streak .flame { color: #cbcbcb; }
-   .habit-settings-icon { display: inline-flex; align-items: center; color: #cfcfcf; cursor: pointer; transition: color 0.2s; flex-shrink: 0; }
+   .habit-settings-icon { display: inline-flex; align-items: center; color: #cfcfcf; cursor: pointer; transition: color 0.2s; flex-shrink: 0; margin-left: auto; }
    .habit-settings-icon:hover { color: #111; }
    .habit-subtext { font-size: 12px; color: #999; margin-top: 5px; margin-left: 31px; display: flex; gap: 12px; flex-wrap: wrap; }
    .habit-subtext span { display: inline-flex; align-items: center; gap: 4px; }
 
    /* Добавление привычки */
-   .dash-habit-add { padding: 4px 0; border-bottom: 1px solid #f3f3f3; }
-   .dash-habit-add input { width: 100%; border: none; background: transparent; font-family: inherit; font-size: 15px; color: #111; padding: 9px 0 9px 31px; outline: none; }
-   .dash-habit-add input::placeholder { color: #bbb; }
+   .dash-habit-add-btn { display: block; width: 100%; text-align: left; border: none; border-bottom: 1px solid #f3f3f3; background: transparent; font-family: inherit; font-size: 15px; color: #bbb; padding: 13px 0; cursor: pointer; transition: color 0.15s; }
+   .dash-habit-add-btn:hover { color: #111; }
    .dash-habit-limit { font-size: 12px; color: #ccc; text-align: center; padding: 14px 0; font-style: italic; }
    
    /* Нижний кластер (тумблер + таб-бар + прогресс) — зафиксирован снизу вьюпорта (мобильная адаптация).
@@ -532,10 +533,8 @@ canvas { width: 100%; height: 150px; }
    /* =========================================
       ВИД «МЕСЯЦ» — ТЕПЛОВАЯ КАРТА / ИСТОРИЯ
       ========================================= */
-   .month-head { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 14px; }
-   .month-nav { background: none; border: 1px solid #e0e0e0; color: #888; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px; transition: all 0.2s; }
-   .month-nav:hover { border-color: #111; color: #111; }
-   .month-label { font-size: 16px; font-weight: 600; color: #111; min-width: 150px; text-align: center; letter-spacing: 0.3px; cursor: pointer; }
+   /* Шапка «Месяца» (стрелки + название + календарь-пикер) переиспользует классы дня-навигации
+      ниже (.day-nav-row и т.п., см. monthHeadHtml) — одинаковый шрифт и отступы в обеих шапках. */
 
    /* Навигация по дню «‹ дата ›» + календарь — normal-mode «День» и Pro mode, см. dayNavHeaderHtml */
    .day-nav-row { justify-content: flex-start; gap: 8px; }
