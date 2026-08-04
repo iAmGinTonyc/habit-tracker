@@ -59,16 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand();
-            // expand() поднимает высоту листа до максимума, НО сам лист остаётся «карточкой» со
-            // скруглёнными углами и тёмной областью сверху (классическое наполовину развёрнутое
-            // окно Mini App) — это чужой UI Telegram, не наш CSS, поэтому его нельзя было убрать
-            // вёрсткой. requestFullscreen() (Bot API 8.0+) убирает эту рамку целиком — юзер прислал
-            // скриншот именно с этой «карточкой», просил выровнять верх приложения по верху экрана.
-            // Метод объявлен в SDK всегда (даже на старых клиентах) — сам SDK при вызове на клиенте
-            // < 8.0 просто пишет ошибку в консоль вместо тихого no-op, поэтому проверяем версию
-            // явно (isVersionAtLeast — рекомендованный Telegram способ), а не только наличие метода.
-            const wa = window.Telegram.WebApp;
-            if (typeof wa.isVersionAtLeast === 'function' && wa.isVersionAtLeast('8.0') && typeof wa.requestFullscreen === 'function') wa.requestFullscreen();
         } catch (e) {}
     } else {
         // Продукт только для Telegram (решено 22.07.2026, см. HANDOFF.md §15) — прямой браузерный
