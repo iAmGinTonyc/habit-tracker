@@ -564,8 +564,8 @@ canvas { width: 100%; height: 150px; }
    .month-empty { text-align: center; color: #999; font-size: 13px; padding: 24px 0; }
 
    .heatmap { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; }
-   .hm-row { display: flex; flex-direction: column; gap: 5px; }
-   .hm-row-head { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+   .hm-row { display: flex; flex-direction: column; gap: 5px; cursor: pointer; }
+   .hm-row-head { display: flex; flex-direction: column; gap: 2px; }
    .hm-row-headline { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
    .hm-label { font-size: 13px; color: #222; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
    .hm-label.done { color: #bbb; text-decoration: line-through; }
@@ -578,22 +578,11 @@ canvas { width: 100%; height: 150px; }
    .hm-settings { display: inline-flex; align-items: center; justify-content: center; color: #cfcfcf; cursor: pointer; transition: color 0.2s; padding: 4px; margin: -4px; }
    .hm-settings:hover { color: #111; }
    .hm-settings svg { width: 20px; height: 20px; }
-   /* --hm-days задаётся инлайн из JS (число дней в месяце). На десктопе — все дни сжаты в ширину
-      контейнера (1fr each), скролла нет. На мобильном @media ниже даёт клетке фиксированную ширину
-      (--cell-w) и делает САМУ `.hm-cells` скроллящейся горизонтально — НЕ общий контейнер #heatmap,
-      как было раньше. Название привычки (.hm-row-head) стоит отдельной строкой НАД .hm-cells и не
-      участвует в этом скролле вообще, поэтому не может «плыть» при пролистывании дней (юзер
-      сообщил об этом как о баге в старой версии с общим скроллом + JS-компенсацией — см. HANDOFF.md
-      §18). Пока задача сегодня не отмечена — .hm-cells скрыта (см. .hm-row-pending ниже), только
-      название/шапка видны (чек-лист); после отметки — раскрывается. */
-   .hm-cells { display: grid; gap: 2px; grid-template-columns: repeat(var(--hm-days, 31), 1fr); overflow: hidden; max-height: 200px; opacity: 1; transition: max-height 0.4s ease 0.15s, opacity 0.3s ease 0.15s; }
-   .hm-row-pending .hm-cells { max-height: 0; opacity: 0; pointer-events: none; transition: max-height 0.3s ease, opacity 0.15s ease; }
-   .hm-cell { aspect-ratio: 1; background: #ececec; border-radius: 2px; cursor: pointer; transition: background 0.15s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-   .hm-wd { font-size: 7px; line-height: 1; color: #111; pointer-events: none; letter-spacing: -0.5px; }
-   .hm-cell.done .hm-wd { color: #111; }
-   .hm-cell.done { background: #111; }
-   .hm-cell.today { box-shadow: 0 0 0 1.5px #111; }
-   .hm-cell.future { background: #f7f7f7; cursor: default; }
+   /* Полоса-прогресс за месяц вместо клеток на каждый день (юзер попросил заменить тепловую карту
+      клеток — см. HANDOFF.md). Отметка/снятие отметки за день — через модалку-календарь
+      (openHabitHistoryCalendar), открывается кликом по строке. */
+   .hm-bar { height: 6px; border-radius: 3px; background: #ececec; overflow: hidden; }
+   .hm-bar-fill { height: 100%; background: #111; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 
    .month-chart-block { margin-top: 4px; }
    .month-chart-block + .month-chart-block { margin-top: 24px; }
@@ -723,6 +712,7 @@ canvas { width: 100%; height: 150px; }
    /* === КАСТОМНЫЙ КАЛЕНДАРЬ === */
    .cal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 2800; display: flex; align-items: center; justify-content: center; padding: 20px; }
    .cal-card { background: #fff; border: 1px solid #eee; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); padding: 16px; width: 300px; max-width: 100%; }
+   .cal-habit-title { font-size: 13px; font-weight: 600; color: #111; text-align: center; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
    .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
    .cal-title { font-size: 15px; font-weight: 600; color: #111; }
    .cal-nav { width: 32px; height: 32px; border: 1px solid #e5e5e5; background: #fff; border-radius: 8px; font-size: 18px; line-height: 1; color: #111; cursor: pointer; font-family: inherit; }
@@ -735,6 +725,7 @@ canvas { width: 100%; height: 150px; }
    .cal-cell:hover:not(:disabled):not(.empty) { background: #f2f2f2; }
    .cal-cell.today { font-weight: 700; text-decoration: underline; }
    .cal-cell.sel { background: #111; color: #fff; }
+   .cal-cell.done { text-decoration: line-through; color: #bbb; }
    .cal-cell:disabled { color: #d8d8d8; cursor: default; }
    .cal-grid.cal-months { grid-template-columns: repeat(3, 1fr); gap: 8px; }
    .cal-month-cell { height: 44px; border: 1px solid #eee; background: none; font-family: inherit; font-size: 13px; color: #111; cursor: pointer; border-radius: 8px; padding: 0; }
@@ -743,6 +734,8 @@ canvas { width: 100%; height: 150px; }
    .cal-foot { margin-top: 10px; text-align: center; }
    .cal-today { background: none; border: none; color: #666; font-family: inherit; font-size: 13px; cursor: pointer; padding: 6px; }
    .cal-today:hover { color: #111; text-decoration: underline; }
+   .cal-close { background: #111; border: none; color: #fff; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 20px; border-radius: 10px; }
+   .cal-close:hover { background: #333; }
 
    /* Сводка метрик за месяц (psycho mode) */
    .pm-list { margin-top: 4px; }
@@ -916,15 +909,6 @@ canvas { width: 100%; height: 150px; }
        #training-games-container #game-grid { grid-template-columns: repeat(3, 1fr); }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
-       /* Тепловая карта на мобильном: горизонтальный скролл вместо сжатия всех дней в экран.
-          КАЖДАЯ строка скроллится НЕЗАВИСИМО — .hm-cells сама по себе overflow-x:auto, а не общий
-          скролл на #heatmap. Название привычки (.hm-row-head) — обычная статичная строка НАД
-          .hm-cells, никогда не участвует в скролле, поэтому физически не может сдвинуться при
-          пролистывании дней (в старой версии был общий скролл + JS-компенсация transform на шапке,
-          юзер сообщил, что название всё равно «плыло» — см. HANDOFF.md §18). Ширина клетки
-          (--cell-w) считается в JS через clientWidth так, чтобы влезало ровно 7 колонок. */
-       .hm-cells { grid-template-columns: repeat(var(--hm-days, 31), var(--cell-w, 44px)); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-       .hm-cells::-webkit-scrollbar { display: none; }
        .hm-label { min-width: 0; } /* даёт ellipsis сработать при нехватке места рядом со счётчиком */
    }
    @media (max-width: 400px) {

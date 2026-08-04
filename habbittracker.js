@@ -894,8 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // переключатель под шапкой (см. psychoSubView/renderPsychoDay/renderPsychoMonth).
         if (dashState.psychoMode) { (psychoSubView === 'day' ? renderPsychoDay : renderPsychoMonth)(y, m); return; }
         // Обычный режим — тот же переключатель «День»/«Месяц», что и в Pro mode (см. HANDOFF.md).
-        // «Месяц» — дефолт (тепловая карта ниже) — на неё, в частности, целится онбординг-тур
-        // (.hm-row-head и т.п., см. DAY_TOUR), поэтому дефолт менять нельзя.
+        // «День» — дефолт (см. HANDOFF.md §28).
         if (taskViewMode === 'day') { renderTaskDayView(currentTaskDate); return; }
         const days = daysInMonth(y, m);
         const dayList = Array.from({ length: days }, (_, i) => i + 1);
@@ -919,7 +918,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="month-stat"><span>${st.pct}%</span>прогресс</div>
             </div>
             <div class="month-progress"><div class="month-progress-fill" style="width:${st.pct}%"></div></div>
-            <div class="month-hint">клик по клетке — отметить день · сегодня выделено рамкой</div>
+            <div class="month-hint">нажми на привычку, чтобы открыть календарь отметок</div>
             ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет привычек — добавь ниже.</p>`}
             <div id="month-habit-add"></div>
             <div class="month-wheel-block">
@@ -951,139 +950,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const hm = document.getElementById('heatmap');
         if (hm) {
-            // Ширина видимой области на мобильном (7 колонок видно) считаем через
-            // document.documentElement.clientWidth, а НЕ CSS-юнит 100vw — на iOS Safari 100vw
-            // надёжно шире реального видимого вьюпорта (известный баг), из-за чего верстка вылезала
-            // за экран. clientWidth свободен от этой особенности. offset = 44 (паддинг
-            // #dashboard-screen, 22px×2).
-            const isMobileHeatmap = window.matchMedia('(max-width: 600px)').matches;
-            const visibleW = isMobileHeatmap ? Math.max(document.documentElement.clientWidth - 44, 196) : null;
-            const cellW = isMobileHeatmap ? Math.max(28, visibleW / 7) : null;
-            // Клетки — ВСЕГДА в календарном порядке 1..последний день месяца (без переупорядочивания):
-            // так последняя клетка строки — это реально последний день месяца с верным днём недели
-            // (юзер прислал пример: если месяц заканчивается в пятницу, последняя клетка — пятница).
-            // Для ТЕКУЩЕГО месяца после рендера скроллим каждую строку так, чтобы сегодняшняя клетка
-            // была первой видимой (см. ниже, после forEach) — прошлые дни остаются левее, куда можно
-            // доскроллить назад; для прошлых месяцев скролл не трогаем (начало — 1 число).
-            const now = new Date();
-            const isCurrentMonth = y === now.getFullYear() && m === now.getMonth();
+            // Вместо клеток на каждый день — одна полоса-прогресс за месяц (юзер попросил заменить
+            // тепловую карту дней на сводку, см. HANDOFF.md). Отметка/снятие отметки за конкретный
+            // день теперь только через модалку-календарь (openHabitHistoryCalendar) — открывается
+            // кликом по строке, включает и сегодня, и задний числом.
             habits.forEach((h, hIdx) => {
                 const streak = currentStreak(h.uid);
                 const monthDone = dayList.filter(d => isDone(h.uid, fdt(y, m, d))).length;
-                const cells = dayList.map(d => {
-                    const k = fdt(y, m, d);
-                    const done = isDone(h.uid, k);
-                    const future = k > tKey;
-                    const wd = WD_SHORT[new Date(y, m, d).getDay()];
-                    return `<div class="hm-cell${done ? ' done' : ''}${k === tKey ? ' today' : ''}${future ? ' future' : ''}" data-uid="${h.uid}" data-key="${k}" title="${d} ${MONTH_NAMES[m]} — ${done ? 'выполнено' : 'нет'}"><span class="hm-wd">${wd}</span></div>`;
-                }).join('');
+                const pct = days ? Math.round(monthDone / days * 100) : 0;
+                const doneToday = isDone(h.uid, tKey);
                 // Подпись под названием — время напоминания и триггер «я сделаю после…», если заданы.
                 let subtextHtml = '';
                 if (h.reminderTime) subtextHtml += `<span>${h.reminderTime}</span>`;
                 if (h.triggerText) subtextHtml += `<span>я сделаю после: ${h.triggerText}</span>`;
-                // Прогрессивное раскрытие («сделай сегодня» — чек-лист поверх клеток, пока не
-                // отмечено) имеет смысл только для ТЕКУЩЕГО месяца: в прошлом месяце «сегодня» не
-                // существует — клетки должны быть сразу доступны для правок задним числом, без
-                // скрытия за шапкой. См. HANDOFF.md §15/§18 (сам механизм) — здесь только его область
-                // действия сузили до текущего месяца по просьбе юзера.
-                const pendingToday = isCurrentMonth && !h.completed;
                 const rowEl = document.createElement('div');
-                rowEl.className = `hm-row${pendingToday ? ' hm-row-pending' : ''}`;
+                rowEl.className = 'hm-row';
+                rowEl.dataset.uid = h.uid;
                 rowEl.innerHTML = `
                     <div class="hm-row-head">
                         <div class="hm-row-headline">
-                            <span class="hm-label${h.completed ? ' done' : ''}" title="${h.text}">${h.text}</span>
+                            <span class="hm-label${doneToday ? ' done' : ''}" title="${h.text}">${h.text}</span>
                             <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
                         </div>
                         ${subtextHtml ? `<div class="hm-subtext">${subtextHtml}</div>` : ''}
                     </div>
-                    <div class="hm-cells" style="--hm-days:${days}${cellW ? `;--cell-w:${cellW}px` : ''}">${cells}</div>`;
+                    <div class="hm-bar"><div class="hm-bar-fill" style="width:${pct}%"></div></div>`;
                 hm.appendChild(rowEl);
             });
 
-            // Мобильная адаптация: КАЖДАЯ строка скроллится горизонтально независимо (`.hm-cells`
-            // сама по себе `overflow-x:auto`, см. CSS) — название привычки (`.hm-row-head`) стоит
-            // ВЫШЕ и вообще не участвует ни в каком скролле, поэтому физически не может сдвинуться.
-            // Раньше был общий скролл на #heatmap + ручная JS-компенсация transform:translateX на
-            // заголовке (аналог sticky) — юзер сообщил, что название всё равно «плыло» при скролле
-            // клеток (грабли, см. HANDOFF.md §18); независимый скролл на уровне строки убирает саму
-            // необходимость в этой компенсации.
-            if (isCurrentMonth) {
-                // Сегодняшняя клетка — первая ВИДИМАЯ в каждой строке (не первая в разметке — порядок
-                // остался календарным, см. выше), чтобы не пришлось скроллить, чтобы её найти. Прошлые
-                // дни остаются левее — доскроллить назад по-прежнему можно (см. запрос юзера).
-                // scrollIntoView({inline:'start'}) тут не подходит: .hm-cells вложена в несколько
-                // скролл-контейнеров, и браузер выравнивает «в среднем» между ними, а не строго по
-                // левому краю своего контейнера (проверено — оставался сдвиг на несколько клеток).
-                // Считаем позицию вручную относительно ПЕРВОЙ клетки строки — их offsetLeft в одной
-                // системе координат (общий offsetParent), в отличие от сравнения offsetLeft напрямую
-                // с scrollLeft.
-                hm.querySelectorAll('.hm-row').forEach(row => {
-                    const cellsBox = row.querySelector('.hm-cells');
-                    const firstCell = cellsBox.querySelector('.hm-cell');
-                    const todayCell = cellsBox.querySelector('.hm-cell.today');
-                    if (cellsBox && firstCell && todayCell) cellsBox.scrollLeft = todayCell.offsetLeft - firstCell.offsetLeft;
-                });
-            }
-
-            // редактирование задним числом (делегирование, без полного ре-рендера)
             hm.onclick = (e) => {
                 const settingsIcon = e.target.closest('.hm-settings');
                 if (settingsIcon) { openHabitSettings(+settingsIcon.dataset.idx); return; }
-                // Пока сегодня не отмечено, клетки скрыты за «шапкой»-чек-листом (см. рендер выше) —
-                // клик по шапке (кроме «⋯») эквивалентен клику по сегодняшней клетке под ней.
-                const pendingHead = e.target.closest('.hm-row-pending .hm-row-head');
-                if (pendingHead) {
-                    const todayCell = pendingHead.closest('.hm-row').querySelector('.hm-cell.today');
-                    if (todayCell) todayCell.click();
-                    return;
-                }
-                const cell = e.target.closest('.hm-cell');
-                if (!cell || cell.classList.contains('future')) return;
-                const uid = cell.dataset.uid, key = cell.dataset.key;
-                const now = !isDone(uid, key);
-                setHistory(uid, key, now);
-                cell.classList.toggle('done', now);
-                const rowEl = cell.closest('.hm-row');
-                // если правим сегодня — синхронизируем с дашбордом И начисляем XP (как toggleHabit:
-                // один раз в день, без фарма, общий habit.xpDate с «Днём»). За прошлые дни XP НЕ даём.
-                // Текст задачи перечёркивается так же, как в бывшей вкладке «День» (см. HANDOFF.md §15).
-                if (key === tKey) {
-                    const h = habits.find(x => x.uid === uid);
-                    if (h) {
-                        h.completed = now;
-                        if (now && h.xpDate !== todayKey()) { h.xpDate = todayKey(); awardXP(getLevelStats(dashState.level).xpPerHabit); }
-                    }
-                    const label = rowEl.querySelector('.hm-label');
-                    if (label) label.classList.toggle('done', now);
-                    // Отмечена — перечёркиваем, ждём, пока анимация доиграет, и только потом
-                    // раскрываем клетки (снимаем hm-row-pending, CSS сама анимирует reveal).
-                    // Сняли отметку обратно — сворачиваем сразу, без задержки.
-                    if (now) setTimeout(() => rowEl.classList.remove('hm-row-pending'), 450);
-                    else rowEl.classList.add('hm-row-pending');
-                    // Леджер для скидки (см. auth.js syncTodayCompletion / db/phase7_…sql) — только
-                    // за СЕГОДНЯ, никогда не за прошлые дни (см. цикл выше по key === tKey).
-                    if (window.syncTodayCompletion) window.syncTodayCompletion(habits.filter(x => isDone(x.uid, tKey)).length);
-                }
-                saveProgress();
-                // точечно обновляем мету строки, сводку месяца (с анимацией) и колесо жизни —
-                // раньше колесо не трогалось тут вообще и ждало полного renderMonthView (перезагрузку
-                // страницы/повторный заход на вкладку), юзер попросил обновлять сразу.
-                const md = dayList.filter(d => isDone(uid, fdt(y, m, d))).length;
-                const s = currentStreak(uid);
-                const hIdx = habits.findIndex(x => x.uid === uid);
-                // ВАЖНО: .hm-settings — тоже внутри .hm-meta, её нужно перерисовать вместе со
-                // стриком/счётчиком, иначе точечное обновление стирает иконку настроек этой строки
-                // (была найдена в браузере при проверке — querySelector('.hm-settings') находил
-                // соседнюю строку вместо этой после первого клика по клетке).
-                rowEl.querySelector('.hm-meta').innerHTML = `${s > 0 ? `<span class="hm-streak">${FLAME}${s}</span>` : ''}<span class="hm-count">${md}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span>`;
-                const s2 = monthStats();
-                const stats = root.querySelectorAll('.month-stat span');
-                animateNumber(stats[0], s2.done);
-                animateNumber(stats[1], s2.possible);
-                animateNumber(stats[2], s2.pct, '%');
-                root.querySelector('.month-progress-fill').style.width = `${s2.pct}%`;
-                renderLifeWheel('month', 'life-wheel-month', y, m);
+                const row = e.target.closest('.hm-row');
+                if (!row) return;
+                const h = habits.find(x => x.uid === row.dataset.uid);
+                if (h) openHabitHistoryCalendar(h, y, m);
             };
         }
 
@@ -1862,6 +1763,58 @@ document.addEventListener('DOMContentLoaded', () => {
         draw();
     }
 
+    // Модалка-календарь истории ОДНОЙ привычки за месяц — открывается кликом по строке в сводке
+    // «Месяц» (см. renderMonthView), заменившей тепловую карту клеток на полосу-прогресс (юзер
+    // попросил). Дни, когда привычка выполнена, просто зачёркнуты — то же требование юзера, без
+    // заливки/цвета. Клик по дню — toggle, та же ретроактивная механика и XP-логика, что у
+    // toggleHabitForDate (normal-mode «День»); будущее недоступно. Тот же .cal-overlay/.cal-card,
+    // что и у openCalendar/openMonthPicker, но модалка не закрывается по клику на день — можно
+    // отметить несколько дней подряд, закрывается явной кнопкой «Готово», кликом вне карточки или
+    // Escape. При закрытии — renderMonthView(), чтобы полоса/счётчик/стрик подхватили изменения.
+    function openHabitHistoryCalendar(habit, y, m) {
+        let vy = y, vm = m;
+        const overlay = document.createElement('div');
+        overlay.className = 'cal-overlay';
+        document.body.appendChild(overlay);
+        function close() { overlay.remove(); document.removeEventListener('keydown', onKey); renderMonthView(); }
+        function onKey(e) { if (e.key === 'Escape') close(); }
+        document.addEventListener('keydown', onKey);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+        function draw() {
+            const startDow = (new Date(vy, vm, 1).getDay() + 6) % 7; // 0 = Пн
+            const days = daysInMonth(vy, vm);
+            let cells = '';
+            for (let i = 0; i < startDow; i++) cells += '<span class="cal-cell empty"></span>';
+            for (let d = 1; d <= days; d++) {
+                const key = fdt(vy, vm, d);
+                const done = isDone(habit.uid, key);
+                cells += `<button class="cal-cell${done ? ' done' : ''}${key === todayKey() ? ' today' : ''}" data-key="${key}"${key > todayKey() ? ' disabled' : ''}>${d}</button>`;
+            }
+            overlay.innerHTML = `<div class="cal-card">
+                <div class="cal-habit-title">${habit.text}</div>
+                <div class="cal-head">
+                    <button class="cal-nav" data-nav="-1" type="button" aria-label="Предыдущий месяц">‹</button>
+                    <span class="cal-title">${MONTH_NAMES[vm]} ${vy}</span>
+                    <button class="cal-nav" data-nav="1" type="button" aria-label="Следующий месяц">›</button>
+                </div>
+                <div class="cal-grid cal-wd">${CAL_WD.map(w => `<span class="cal-wd-cell">${w}</span>`).join('')}</div>
+                <div class="cal-grid cal-days">${cells}</div>
+                <div class="cal-foot"><button class="cal-close" type="button">Готово</button></div>
+            </div>`;
+            overlay.querySelectorAll('.cal-nav').forEach(b => b.addEventListener('click', () => {
+                vm += (+b.dataset.nav); if (vm < 0) { vm = 11; vy--; } else if (vm > 11) { vm = 0; vy++; }
+                draw();
+            }));
+            overlay.querySelectorAll('.cal-cell[data-key]:not([disabled])').forEach(b => b.addEventListener('click', () => {
+                toggleHabitForDate(habit, b.dataset.key);
+                draw();
+            }));
+            overlay.querySelector('.cal-close').addEventListener('click', close);
+        }
+        draw();
+    }
+
     // =========================================
     //   ПИТОМЕЦ (контракт для визуала, который добавим отдельно)
     //   стадия = от уровня; настроение = забота за 7 дней
@@ -1983,11 +1936,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
         { target: () => document.getElementById('new-habit-input-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», и появится поле, чтобы добавить свою привычку (до 10).' },
         { target: () => document.querySelector('.day-fields-row'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, тоже с перечёркиванием.' },
-        { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть тепловую карту истории и общий прогресс.' },
-        // Пока сегодняшний день не отмечен, клетки истории скрыты за строкой-«шапкой» (см.
-        // .hm-row-pending в CSS/renderMonthView) — целимся в саму строку (.hm-row-head), а не в
-        // .hm-cell.today, который до первой отметки физически не виден и не кликабелен.
-        { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Клик по клетке отмечает день — в том числе задним числом, если пропустил.', requiresHabits: true },
+        { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
+        { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на привычку — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
         { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.' },
         { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
         { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
@@ -2000,7 +1950,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     const VIEW_HINTS = {
-        month:   'История по дням: тёмная клетка — выполнено. Кликни по любому дню, чтобы отметить задним числом.',
+        month:   'В «Месяце» — прогресс за месяц по каждой привычке. Нажми на привычку, чтобы открыть календарь и отметить любой день, включая задний числом.',
         morning: 'Чек-ап дня: время сна и подъёма, качество сна, настроение, энергия и здоровье — шкалами 1–10, сохраняется автоматически. Ниже — графики за текущий месяц: настроение/сон/энергия/здоровье и отдельно часы сна.',
         evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.',
         food:    'Питание: для завтрака/обеда/ужина отметь время кнопкой и коротко запиши, что ел — сохраняется сразу. Ниже — сводка по дням за эту неделю.'
