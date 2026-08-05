@@ -130,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkinHistory: {},
         history: {},        // постоянный лог выполнения привычек: { 'YYYY-MM-DD': { uid: true } }
         foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { breakfast:{time,text}, lunch, dinner } }
+        gameRecords: {},    // личные рекорды мини-игр: { memory:{bestTimeMs}, sudoku:{bestTimeMs}, count:{bestCorrect}, words:{bestCorrect} }
         calorieLog: {},     // Pro mode «Питание»: { 'YYYY-MM-DD': [{ id, name, kcal }] } — см. renderFoodCalories
         calorieTarget: 2000, // дневная цель ккал в Pro mode, переопределяется юзером
         psychoMode: false,  // тумблер «psycho mode» (числовые метрики вместо привычек)
@@ -398,6 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkinHistory: {},
             history: {},
             foodLog: {},
+            gameRecords: {},
             calorieLog: {},
             calorieTarget: 2000,
             psychoMode: false,
@@ -483,6 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.checkinHistory) dashState.checkinHistory = {};
             if (!dashState.history) dashState.history = {};
             if (!dashState.foodLog) dashState.foodLog = {};
+            if (!dashState.gameRecords) dashState.gameRecords = {};
             if (!dashState.calorieLog) dashState.calorieLog = {};
             if (typeof dashState.calorieTarget !== 'number') dashState.calorieTarget = 2000;
             if (!dashState.unlockedGames) dashState.unlockedGames = [];
@@ -688,6 +691,13 @@ document.addEventListener('DOMContentLoaded', () => {
         sudoku: { name: 'Быстрое судоку', desc: 'По пропуску в квадрате' }
     };
     const GAME_ORDER = ['memory', 'count', 'words', 'sudoku'];
+    // Ключ рекорда каждой игры + как его показать в меню (см. initTrainingMenu/updateGameRecord).
+    const GAME_RECORD_META = {
+        memory: { key: 'bestTimeMs', fmt: (v) => fmtGameTime(v) },
+        sudoku: { key: 'bestTimeMs', fmt: (v) => fmtGameTime(v) },
+        count:  { key: 'bestCorrect', fmt: (v) => `${v} верных` },
+        words:  { key: 'bestCorrect', fmt: (v) => `${v} верных` }
+    };
     const UNLOCK_LEVELS = [3, 7, 10]; // на этих уровнях даётся выбор новой игры
     const maxUnlockable = () => Math.min(1 + UNLOCK_LEVELS.filter(l => dashState.level >= l).length, GAME_ORDER.length);
     const lockedGames = () => GAME_ORDER.filter(g => !dashState.unlockedGames.includes(g));
@@ -1602,8 +1612,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================
     // Локальная база «название → ккал за порцию» для автокомплита калорий в Pro mode (см.
     // renderFoodCalories) — офлайн, без похода во внешние сайты (см. HANDOFF.md про решение не
-    // скрапить сторонние базы на каждый ввод). Значения приблизительные, порция — обычная бытовая
-    // мера (100г / 1 шт / стандартный размер в кофейне).
+    // скрапить сторонние базы на каждый ввод). ВАЖНО: значения ниже — ОБЩИЕ ориентировочные оценки
+    // (обычная бытовая мера — 100г/1шт/стандартный размер в кофейне), НЕ выгружены из какого-то
+    // конкретного заведения/сайта. Юзер попросил помечать позиции квадратными скобками, когда
+    // ккал реально взяты из конкретного места — поддержка формата есть (необязательное поле
+    // `source`, отображается как «Название [Source]» — см. foodLabel), но текущий набор просто
+    // ничем не помечен, т.к. источник не привязан к месту. Если понадобятся реальные позиции
+    // конкретных заведений — добавлять сюда с `source`.
     const FOOD_DB = [
         { name: 'Булочка с корицей', kcal: 350 }, { name: 'Булочка с изюмом', kcal: 280 },
         { name: 'Булочка сдобная', kcal: 300 }, { name: 'Круассан классический', kcal: 270 },
@@ -1648,6 +1663,8 @@ document.addEventListener('DOMContentLoaded', () => {
             .sort((a, b) => a.name.toLowerCase().indexOf(q) - b.name.toLowerCase().indexOf(q))
             .slice(0, 6);
     }
+    // «Название [Источник]» — источник в квадратных скобках, только если у позиции он указан.
+    const foodLabel = (item) => item.source ? `${item.name} [${item.source}]` : item.name;
 
     const MEALS = [
         { id: 'breakfast', name: 'Завтрак' },
@@ -1794,7 +1811,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             ${isHistory ? '' : `
             <div class="cal-add-row">
-                <input type="text" class="formula-input" id="cal-search-input" placeholder="например, булочка" autocomplete="off">
+                <input type="text" class="formula-input" id="cal-search-input" placeholder="например, булочка с корицей [Цех85]" autocomplete="off">
                 <div id="cal-suggestions" class="cal-suggestions"></div>
             </div>
             <div class="cal-manual-row">
@@ -1845,7 +1862,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchInput.addEventListener('input', () => {
                 const matches = searchFoodDb(searchInput.value);
                 suggestBox.innerHTML = matches.map(m =>
-                    `<button type="button" class="cal-suggestion" data-name="${escAttr(m.name)}" data-kcal="${m.kcal}">${m.name}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`
+                    `<button type="button" class="cal-suggestion" data-name="${escAttr(foodLabel(m))}" data-kcal="${m.kcal}">${foodLabel(m)}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`
                 ).join('');
                 suggestBox.style.display = matches.length ? 'block' : 'none';
             });
@@ -2622,6 +2639,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.awardXP = awardXP;
 
+    // === ИГРЫ: ЛИЧНЫЕ РЕКОРДЫ (вместо XP за игру — юзер попросил не копить историю, а просто
+    // хранить лучший результат: время — там, где играют «на скорость» (память/судоку), количество
+    // верных ответов — там, где играют на фиксированное время (посчитай/слова)). ===
+    function fmtGameTime(ms) {
+        const s = ms / 1000;
+        if (s < 60) return `${s.toFixed(1)} с`;
+        const m = Math.floor(s / 60);
+        return `${m}:${String(Math.round(s - m * 60)).padStart(2, '0')}`;
+    }
+    // higherIsBetter=false — время (меньше=лучше), true — количество верных ответов (больше=лучше).
+    // Возвращает { best, isNew } — best актуален уже ПОСЛЕ сравнения (сохранён, если побит).
+    function updateGameRecord(game, key, value, higherIsBetter) {
+        if (!dashState.gameRecords) dashState.gameRecords = {};
+        if (!dashState.gameRecords[game]) dashState.gameRecords[game] = {};
+        const rec = dashState.gameRecords[game];
+        const prev = rec[key];
+        const isNew = prev == null || (higherIsBetter ? value > prev : value < prev);
+        if (isNew) { rec[key] = value; saveProgress(); }
+        return { best: isNew ? value : prev, isNew };
+    }
+    // Единая разметка бейджа результата — переиспользует стиль .training-xp-badge (раньше был
+    // «+N XP»), просто теперь это рекорд.
+    function gameRecordBadgeHtml(text, isNew) {
+        return `<div class="training-xp-badge">${text}${isNew ? '<span class="training-record-new"> · новый рекорд!</span>' : ''}</div>`;
+    }
+
     // === ИГРЫ: МЕНЮ ===
     function initTrainingMenu() {
         const container = document.getElementById('training-games-container');
@@ -2632,9 +2675,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!allUnlocked) checkGameUnlock(); // если есть невыбранная разблокировка — предложить выбор
         const cards = GAME_ORDER.map(g => {
             const unlocked = allUnlocked || dashState.unlockedGames.includes(g);
+            const meta = GAME_RECORD_META[g];
+            const recVal = unlocked ? ((dashState.gameRecords || {})[g] || {})[meta.key] : null;
             return `<div class="training-card${unlocked ? '' : ' locked'}" data-game="${unlocked ? g : ''}">
                 <span class="training-name">${GAMES[g].name}</span>
                 <span class="training-desc">${unlocked ? GAMES[g].desc : 'Откроется с уровнем'}</span>
+                ${recVal != null ? `<span class="training-record">рекорд: ${meta.fmt(recVal)}</span>` : ''}
                 ${unlocked ? '' : `<span class="training-lock">${LOCK}</span>`}
             </div>`;
         }).join('');
@@ -2697,10 +2743,17 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="game-setup" style="text-align:center">
                 <h3 class="dash-subtitle" style="margin-bottom:4px">Быстрое судоку</h3>
                 <p class="training-desc" style="margin-bottom:14px">Заполни по одной пустой клетке в каждом квадрате</p>
+                <div class="game-timer" id="sudoku-timer">0.0 с</div>
                 <div id="sudoku-grid">${cells}</div>
                 <button class="training-btn primary" id="sudoku-check" style="margin-top:16px">Проверить</button>
             </div>
             <button class="training-back-btn" id="training-back">← Назад</button>`;
+
+        // Рекорд тут — время до верного решения (см. HANDOFF), тикающий таймер живой на экране.
+        const startedAt = Date.now();
+        trainingGameInterval = setInterval(() => {
+            document.getElementById('sudoku-timer').textContent = fmtGameTime(Date.now() - startedAt);
+        }, 100);
 
         // ввод только цифр 1-9, авто-переход к следующей пустой клетке
         const inputs = [...container.querySelectorAll('.sudoku-cell.blank')];
@@ -2722,12 +2775,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (ok) correct++;
             });
             if (correct < 9) return; // не всё верно — даём дорешать
-            const xp = 9;
-            container.innerHTML = `<div class="training-result"><div class="training-result-title">Решено!</div><div class="training-result-message">Все 9 клеток верны</div><div class="training-xp-badge">+${xp} XP</div><div class="training-result-buttons"><button class="training-btn primary" id="retry-sudoku">Ещё раз</button><button class="training-btn secondary" id="menu-sudoku">В меню</button></div><button class="training-back-btn" id="back-sudoku">← Назад</button></div>`;
+            clearInterval(trainingGameInterval);
+            const elapsedMs = Date.now() - startedAt;
+            const { best, isNew } = updateGameRecord('sudoku', 'bestTimeMs', elapsedMs, false);
+            container.innerHTML = `<div class="training-result"><div class="training-result-title">Решено!</div><div class="training-result-message">Все 9 клеток верны за ${fmtGameTime(elapsedMs)}</div>${gameRecordBadgeHtml(`Рекорд: ${fmtGameTime(best)}`, isNew)}<div class="training-result-buttons"><button class="training-btn primary" id="retry-sudoku">Ещё раз</button><button class="training-btn secondary" id="menu-sudoku">В меню</button></div><button class="training-back-btn" id="back-sudoku">← Назад</button></div>`;
             document.getElementById('retry-sudoku').onclick = () => renderSudokuGame(container);
             document.getElementById('menu-sudoku').onclick = () => initTrainingMenu();
             document.getElementById('back-sudoku').onclick = () => initTrainingMenu();
-            if (window.awardXP) window.awardXP(xp);
         };
         document.getElementById('training-back').onclick = () => initTrainingMenu();
     }
@@ -2739,7 +2793,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderCountGame(container) {
         container.innerHTML = `
             <div class="game-setup" id="count-setup"><h3 style="margin-bottom:15px">Выбери сложность</h3><button class="difficulty-btn" data-diff="1">1-9</button><button class="difficulty-btn" data-diff="2">10-99</button><button class="difficulty-btn" data-diff="3">100-999</button></div>
-            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="number" class="game-input" id="count-input" inputmode="numeric" placeholder="?" autocomplete="off"></div>
+            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="number" class="game-input" id="count-input" inputmode="numeric" enterkeyhint="done" placeholder="?" autocomplete="off"></div>
             <button class="training-back-btn" id="training-back">← Назад</button>`;
         let difficulty = 1, timer = 60, correct = 0, total = 0, currentEq = null;
         function getRandom(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -2765,16 +2819,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         function endGame() {
             clearInterval(trainingGameInterval);
-            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Правильных ответов: ${correct} из ${total}</div><div class="training-xp-badge">+${Math.max(1, Math.min(10, correct))} XP</div><div class="training-result-buttons"><button class="training-btn primary" id="retry-count">Ещё раз</button><button class="training-btn secondary" id="menu-count">В меню</button></div><button class="training-back-btn" id="back-count">← Назад</button></div>`;
+            const { best, isNew } = updateGameRecord('count', 'bestCorrect', correct, true);
+            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Правильных ответов: ${correct} из ${total}</div>${gameRecordBadgeHtml(`Рекорд: ${best}`, isNew)}<div class="training-result-buttons"><button class="training-btn primary" id="retry-count">Ещё раз</button><button class="training-btn secondary" id="menu-count">В меню</button></div><button class="training-back-btn" id="back-count">← Назад</button></div>`;
             document.getElementById('retry-count').onclick = () => renderCountGame(container);
             document.getElementById('menu-count').onclick = () => initTrainingMenu();
             document.getElementById('back-count').onclick = () => initTrainingMenu();
-            const earned = Math.max(1, Math.min(10, correct));
-            if (window.awardXP) window.awardXP(earned);
         }
         document.querySelectorAll('#count-setup .difficulty-btn').forEach(btn => btn.addEventListener('click', (e) => start(parseInt(e.target.dataset.diff))));
-        document.getElementById('count-input')?.addEventListener('keypress', (e) => {
+        document.getElementById('count-input')?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && currentEq) {
+                e.preventDefault();
                 const ans = parseInt(e.target.value);
                 if (!isNaN(ans)) {
                     total++; const isCorrect = (ans === currentEq.result);
@@ -2790,11 +2844,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderMemoryGame(container) {
-        const allCardImages = ['Буби 2.png', 'Буби 3.png', 'Буби 4.png', 'Буби 5.png', 'Буби 6.png', 'Буби 7.png', 'Буби 8.png', 'Буби 9.png', 'Буби 10.png', 'Буби Валет.png', 'Буби Дама.png', 'Буби Король.png', 'Буби Туз.png', 'Пики 2.png', 'Пики 3.png', 'Пики 4.png', 'Пики 5.png', 'Пики 6.png', 'Пики 7.png', 'Пики 8.png', 'Пики 9.png', 'Пики 10.png', 'Пики Валет.png', 'Пики Дама.png', 'Пики Король.png', 'Пики Туз.png', 'Трефы 2.png', 'Трефы 3.png', 'Трефы 4.png', 'Трефы 5.png', 'Трефы 6.png', 'Трефы 7.png', 'Трефы 8.png', 'Трефы 9.png', 'Трефы 10.png', 'Трефы Валет.png', 'Трефы Дама.png', 'Трефы Король.png', 'Трефы Туз.png', 'Черви 2.png', 'Черви 3.png', 'Черви 4.png', 'Черви 5.png', 'Черви 6.png', 'Черви 7.png', 'Черви 8.png', 'Черви 9.png', 'Черви 10.png', 'Черви Валет.png', 'Черви Дама.png', 'Черви Король.png', 'Черви Туз.png'];
+        // Имена файлов — актуальная колода в pics/ (юзер заменил картинки, старые "Буби 2.png" и
+        // т.п. больше не существуют физически, каждая карта падала на серый placeholder через
+        // img.onerror). Реальные файлы: `{ранг}_of_{масть}.png`, ранги 2-10 и J/Q/K/A.
+        const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'];
+        const allCardImages = SUITS.flatMap(suit => RANKS.map(rank => `${rank}_of_${suit}.png`));
         const selectedImages = [...allCardImages].sort(() => Math.random() - 0.5).slice(0, 8);
         let cards = [], flipped = [], matchedPairs = 0, moves = 0, canFlip = true;
-        container.innerHTML = `<div id="game-grid" style="grid-template-columns:repeat(4,1fr);gap:5px;width:100%;max-width:400px;margin:0 auto"></div><button class="training-back-btn" id="training-back">← Назад</button>`;
+        container.innerHTML = `<div class="game-timer" id="memory-timer">0.0 с</div><div id="game-grid" style="grid-template-columns:repeat(4,1fr);gap:5px;width:100%;max-width:400px;margin:0 auto"></div><button class="training-back-btn" id="training-back">← Назад</button>`;
         const gameGrid = document.getElementById('game-grid');
+        // Личный рекорд тут — время до полного нахождения всех пар (см. HANDOFF): тикающий
+        // таймер живой на экране, останавливается вместе с игрой.
+        const startedAt = Date.now();
+        trainingGameInterval = setInterval(() => {
+            document.getElementById('memory-timer').textContent = fmtGameTime(Date.now() - startedAt);
+        }, 100);
         function createCards() { cards = [...selectedImages, ...selectedImages].map((img, i) => ({ id: i, img, flipped: false, matched: false })).sort(() => Math.random() - 0.5); }
         function render() {
             gameGrid.innerHTML = '';
@@ -2818,19 +2883,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     if (flipped[0].img === flipped[1].img) {
                         flipped.forEach(c => { c.matched = true; c.flipped = false; }); matchedPairs++;
-                        if (matchedPairs === 8) { clearInterval(trainingGameInterval); endGame(); }
+                        if (matchedPairs === 8) { clearInterval(trainingGameInterval); endGame(Date.now() - startedAt); }
                     } else { flipped.forEach(c => c.flipped = false); }
                     flipped = []; canFlip = true; render();
                 }, 400);
             }
         }
-        function endGame() {
-            const xp = Math.max(1, Math.round(matchedPairs * 1.25));
-            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Пар найдено: ${matchedPairs} из 8</div><div class="training-xp-badge">+${xp} XP</div><div class="training-result-buttons"><button class="training-btn primary" id="retry-memory">Ещё раз</button><button class="training-btn secondary" id="menu-memory">В меню</button></div><button class="training-back-btn" id="back-memory">← Назад</button></div>`;
+        function endGame(elapsedMs) {
+            const { best, isNew } = updateGameRecord('memory', 'bestTimeMs', elapsedMs, false);
+            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Все 8 пар найдены за ${fmtGameTime(elapsedMs)}</div>${gameRecordBadgeHtml(`Рекорд: ${fmtGameTime(best)}`, isNew)}<div class="training-result-buttons"><button class="training-btn primary" id="retry-memory">Ещё раз</button><button class="training-btn secondary" id="menu-memory">В меню</button></div><button class="training-back-btn" id="back-memory">← Назад</button></div>`;
             document.getElementById('retry-memory').onclick = () => renderMemoryGame(container);
             document.getElementById('menu-memory').onclick = () => initTrainingMenu();
             document.getElementById('back-memory').onclick = () => initTrainingMenu();
-            if (window.awardXP) window.awardXP(xp);
         }
         createCards(); render();
         document.getElementById('training-back').onclick = () => initTrainingMenu();
@@ -2838,6 +2902,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderWordsGame(container) {
         const allWords = ["яблоко", "машина", "дом", "книга", "ручка", "солнце", "вода", "дерево", "окно", "стул", "стол", "кошка", "собака", "цветок", "птица", "небо", "облако", "лес", "озеро", "река", "камень", "песок", "море", "снег", "дождь", "ветер", "луна", "звезда", "свет", "тень", "путь", "дверь", "замок", "ключ", "часы", "телефон", "ноутбук", "клавиатура", "мышь", "экран", "зеркало", "картина", "стена", "крыша", "крыло", "хвост", "лапа", "нос", "глаз", "рот", "ухо", "волос", "кожа", "платье", "рубашка", "ботинок", "сапог", "шляпа", "очки", "сумка", "портфель", "карандаш", "тетрадь", "доска", "мел", "сцена", "актер", "роль", "театр", "музыка", "песня", "танец", "праздник", "рождение", "день", "ночь", "сон", "мысль", "чувство", "ум", "сердце", "рука", "нога", "голова", "тело", "жизнь", "смерть", "время", "история", "мир", "война", "дружба", "любовь", "ненависть", "радость", "печаль", "страх", "надежда", "вера"];
+        const WORDS_COUNT = 10; // «10 слов» — юзер указал, что должно быть именно 10, а не 8
         let targetWords = [], entered = [], memorizeTime = 15, guessTime = 45, phase = 'memorize';
         container.innerHTML = `<div class="game-timer" id="words-timer">${memorizeTime}</div><div id="words-display" style="margin:15px 0;font-size:16px"></div><div id="words-input-area" style="display:none"><input type="text" class="game-input" id="words-input" placeholder="Введи слово и нажми Enter" style="width:200px;margin:10px auto"><div class="word-placeholders" id="words-placeholders"></div></div><button class="training-back-btn" id="training-back">← Назад</button>`;
         function getRandomWords(n) { return [...allWords].sort(() => Math.random() - 0.5).slice(0, n); }
@@ -2846,7 +2911,7 @@ document.addEventListener('DOMContentLoaded', () => {
             targetWords.forEach((_, i) => { const ph = document.createElement('div'); ph.className = 'word-placeholder'; ph.id = `ph-${i}`; c.appendChild(ph); });
         }
         function start() {
-            targetWords = getRandomWords(8); entered = []; phase = 'memorize'; memorizeTime = 15;
+            targetWords = getRandomWords(WORDS_COUNT); entered = []; phase = 'memorize'; memorizeTime = 15;
             document.getElementById('words-display').textContent = targetWords.join(', ');
             document.getElementById('words-input-area').style.display = 'none';
             document.getElementById('words-timer').textContent = memorizeTime; setupPlaceholders();
@@ -2858,12 +2923,11 @@ document.addEventListener('DOMContentLoaded', () => {
         function endGame() {
             clearInterval(trainingGameInterval);
             const correct = targetWords.filter(w => entered.includes(w)).length;
-            const xp = Math.max(1, correct);
-            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Угадано слов: ${correct} из 8</div><div class="training-xp-badge">+${xp} XP</div><div class="training-result-buttons"><button class="training-btn primary" id="retry-words">Ещё раз</button><button class="training-btn secondary" id="menu-words">В меню</button></div><button class="training-back-btn" id="back-words">← Назад</button></div>`;
+            const { best, isNew } = updateGameRecord('words', 'bestCorrect', correct, true);
+            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Угадано слов: ${correct} из ${WORDS_COUNT}</div>${gameRecordBadgeHtml(`Рекорд: ${best}`, isNew)}<div class="training-result-buttons"><button class="training-btn primary" id="retry-words">Ещё раз</button><button class="training-btn secondary" id="menu-words">В меню</button></div><button class="training-back-btn" id="back-words">← Назад</button></div>`;
             document.getElementById('retry-words').onclick = () => renderWordsGame(container);
             document.getElementById('menu-words').onclick = () => initTrainingMenu();
             document.getElementById('back-words').onclick = () => initTrainingMenu();
-            if (window.awardXP) window.awardXP(xp);
         }
         document.getElementById('words-input')?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && phase === 'guess') {
@@ -3232,6 +3296,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // === НИЖНЯЯ ПАНЕЛЬ ПРЯЧЕТСЯ ПРИ ОТКРЫТОЙ КЛАВИАТУРЕ ===
+    // `#dash-bottom-bar` зафиксирована снизу вьюпорта поверх контента (см. measureBottomBar выше) —
+    // юзер сообщил, что при открытой клавиатуре она остаётся поверх того, что он в этот момент
+    // печатает/видит (в том числе на игровых экранах — там обычные <input>, не модалки, поэтому их
+    // не покрывает фикс из блока выше). Прячем панель по фокусу на ЛЮБОМ текстовом поле где угодно
+    // в приложении — привязываться к высоте visualViewport ненадёжно (клавиатура анимируется,
+    // высота меняется постепенно), а фокус/блюр поля — прямой и мгновенный сигнал «клавиатура
+    // открылась/закрылась». setTimeout в focusout — иначе смена фокуса МЕЖДУ двумя полями (клик из
+    // одного инпута в другой) на миг покажет и тут же спрячет панель.
+    (function initKeyboardAwareBottomBar() {
+        const bottomBar = document.getElementById('dash-bottom-bar');
+        if (!bottomBar) return;
+        const isTypable = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') &&
+            !['checkbox', 'radio', 'button', 'submit', 'range'].includes(el.type);
+        document.addEventListener('focusin', (e) => { if (isTypable(e.target)) bottomBar.classList.add('kb-hidden'); });
+        document.addEventListener('focusout', (e) => {
+            if (!isTypable(e.target)) return;
+            setTimeout(() => { if (!isTypable(document.activeElement)) bottomBar.classList.remove('kb-hidden'); }, 50);
+        });
+    })();
 
     // === СВАЙП МЕЖДУ ВКЛАДКАМИ (мобильная адаптация) ===
     // Влево — следующая вкладка, вправо — предыдущая. Порядок берём из видимых кнопок таб-бара
