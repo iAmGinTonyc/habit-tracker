@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const introText = document.getElementById('intro-text');
     const dashboardScreen = document.getElementById('dashboard-screen');
     const loadingOverlay = document.getElementById('loading-overlay');
+    // Исходная разметка кнопки «Чек-ап» — в Pro mode эта же кнопка подменяется на «Игры»
+    // (см. syncProModeTab), это позволяет восстановить оригинал при выключении Pro mode.
+    const morningBtnDefaultHTML = (document.getElementById('btn-morning') || {}).innerHTML || '';
 
     // Применяем фиче-флаги: скрываем UI отключённых фич через style.display, код/данные не трогаем
     if (!FEATURES.psychoMode) {
@@ -107,6 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentEditIndex = null;
     let isCreatingHabit = false; // true между openNewHabitModal и close() — саve/delete ветвятся по этому флагу
     let newHabitContextDate = null; // день, к которому привяжется РАЗОВАЯ задача при создании (см. openNewHabitModal)
+    let pendingOneTimeDate = null; // выбранная в модалке дата разовой задачи (по умолчанию = newHabitContextDate/сегодня, меняется через openCalendar)
     let currentTrainingGame = null;
     let trainingGameInterval = null;
     let isHistoryInitialized = false;
@@ -126,6 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
         checkinHistory: {},
         history: {},        // постоянный лог выполнения привычек: { 'YYYY-MM-DD': { uid: true } }
         foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { breakfast:{time,text}, lunch, dinner } }
+        calorieLog: {},     // Pro mode «Питание»: { 'YYYY-MM-DD': [{ id, name, kcal }] } — см. renderFoodCalories
+        calorieTarget: 2000, // дневная цель ккал в Pro mode, переопределяется юзером
         psychoMode: false,  // тумблер «psycho mode» (числовые метрики вместо привычек)
         metrics: [],        // живой список метрик (сидируется из DEFAULT_METRICS в init/createDefaultState)
         metricTargets: {},  // переопределённые цели метрик { metricId: число }
@@ -392,6 +398,8 @@ document.addEventListener('DOMContentLoaded', () => {
             checkinHistory: {},
             history: {},
             foodLog: {},
+            calorieLog: {},
+            calorieTarget: 2000,
             psychoMode: false,
             metrics: cloneMetrics(), // живой список числовых показателей (юзер добавляет/удаляет)
             metricTargets: {},
@@ -475,6 +483,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.checkinHistory) dashState.checkinHistory = {};
             if (!dashState.history) dashState.history = {};
             if (!dashState.foodLog) dashState.foodLog = {};
+            if (!dashState.calorieLog) dashState.calorieLog = {};
+            if (typeof dashState.calorieTarget !== 'number') dashState.calorieTarget = 2000;
             if (!dashState.unlockedGames) dashState.unlockedGames = [];
             if (!dashState.metricLog) dashState.metricLog = {};
             if (!dashState.metricTargets) dashState.metricTargets = {};
@@ -592,7 +602,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewName === 'habits') { startDayTimer(); } else if (timerInterval) { clearInterval(timerInterval); }
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.classList.remove('active');
-            if (btn.dataset.view === viewName) btn.classList.add('active');
+            // В Pro mode #btn-morning (data-view="morning") маршрутизируется на 'training' (см.
+            // wireViewButtons/syncProModeTab), но сама кнопка своего dataset.view не меняет —
+            // подсвечиваем её отдельным условием, иначе активной осталась бы скрытая кнопка «Игры».
+            const isProGamesBtn = btn.id === 'btn-morning' && dashState.psychoMode && viewName === 'training';
+            if (btn.dataset.view === viewName || isProGamesBtn) btn.classList.add('active');
         });
         if (viewName === 'habits') renderDayView();
         else if (viewName === 'training') initTrainingMenu();
@@ -622,8 +636,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const todayData = history[today] || {};
         
         if (morningBtn) {
+            // В Pro mode эта кнопка ведёт на «Игры», а не на чек-ап (см. syncProModeTab) — пульс-
+            // напоминание про незаполненный чек-ап тут неуместен.
             const hasMorning = todayData.morning && Object.keys(todayData.morning).length > 0;
-            morningBtn.classList.toggle('pulse', !hasMorning);
+            morningBtn.classList.toggle('pulse', !hasMorning && !dashState.psychoMode);
         }
         if (eveningBtn) {
             const hasEvening = todayData.evening && Object.keys(todayData.evening).length > 0;
@@ -650,6 +666,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const DOTS = '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>';
     const LOCK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
     const CALENDAR_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>';
+    // Та же иконка, что у (скрытой) кнопки «Игры» в таб-баре — переиспользуется в Pro mode,
+    // см. syncProModeTab.
+    const GAMES_TAB_HTML = '<span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span><span class="vb-txt">Игры</span>';
+    // Pro mode подменяет кнопку «Чек-ап» на «Игры» (юзер попросил убрать чек-ап из Pro mode и
+    // вернуть на его место скрытые мини-игры, без гейта по уровню — доступ и так за подпиской).
+    // Сама кнопка (#btn-morning) не меняется, меняется только её содержимое + куда ведёт клик
+    // (см. wireViewButtons). Выключили Pro mode — возвращаем оригинальную разметку/маршрут.
+    function syncProModeTab() {
+        const btn = document.getElementById('btn-morning');
+        if (!btn) return;
+        btn.innerHTML = dashState.psychoMode ? GAMES_TAB_HTML : morningBtnDefaultHTML;
+    }
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
@@ -707,6 +735,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const pt = document.getElementById('psycho-toggle');
         if (pt) { pt.classList.toggle('on', !!dashState.psychoMode); pt.setAttribute('aria-pressed', dashState.psychoMode ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
+        syncProModeTab();
         switchView('month'); // «Задачи» (бывший «Месяц») — теперь основная вкладка, см. HANDOFF.md §15
         updateProgressUI();
         startReminderChecker();
@@ -1385,6 +1414,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = document.getElementById('psycho-toggle');
         if (t) { t.classList.toggle('on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
+        syncProModeTab();
         // «День» скрыт (см. HANDOFF.md §15) — Pro mode показывает переключатель «День»/«Месяц» во
         // вкладке «Задачи» (renderPsychoDay/renderPsychoMonth, см. renderMonthView).
         switchView('month');
@@ -1488,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actions = row.querySelector('.metric-actions');
                 actions.innerHTML = `
                     <span class="goal-edit-label">${isLimit ? 'лимит на день' : 'цель на день'}</span>
-                    <input type="number" class="goal-edit-input" value="${target}" min="0"${m.step ? ` step="${m.step}"` : ''}>
+                    <input type="number" class="goal-edit-input" inputmode="decimal" value="${target}" min="0"${m.step ? ` step="${m.step}"` : ''}>
                     ${m.unit ? `<span class="goal-edit-unit">${m.unit}</span>` : ''}
                     <button class="goal-edit-save" type="button">ОК</button>
                     <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
@@ -1570,6 +1600,55 @@ document.addEventListener('DOMContentLoaded', () => {
     //   ПИТАНИЕ (вкладка «Питание»)
     //   foodLog[date] = { breakfast:{time,text}, lunch:{time,text}, dinner:{time,text} }
     // =========================================
+    // Локальная база «название → ккал за порцию» для автокомплита калорий в Pro mode (см.
+    // renderFoodCalories) — офлайн, без похода во внешние сайты (см. HANDOFF.md про решение не
+    // скрапить сторонние базы на каждый ввод). Значения приблизительные, порция — обычная бытовая
+    // мера (100г / 1 шт / стандартный размер в кофейне).
+    const FOOD_DB = [
+        { name: 'Булочка с корицей', kcal: 350 }, { name: 'Булочка с изюмом', kcal: 280 },
+        { name: 'Булочка сдобная', kcal: 300 }, { name: 'Круассан классический', kcal: 270 },
+        { name: 'Круассан с миндалем', kcal: 400 }, { name: 'Круассан шоколадный', kcal: 340 },
+        { name: 'Эклер заварной', kcal: 250 }, { name: 'Чизкейк (кусок)', kcal: 380 },
+        { name: 'Тирамису (порция)', kcal: 320 }, { name: 'Маффин шоколадный', kcal: 340 },
+        { name: 'Маффин черничный', kcal: 290 }, { name: 'Печенье овсяное', kcal: 120 },
+        { name: 'Печенье песочное', kcal: 140 }, { name: 'Пончик глазированный', kcal: 260 },
+        { name: 'Капучино 350мл', kcal: 140 }, { name: 'Латте 350мл', kcal: 160 },
+        { name: 'Латте на овсяном молоке 350мл', kcal: 130 }, { name: 'Американо', kcal: 5 },
+        { name: 'Эспрессо', kcal: 3 }, { name: 'Раф кофе', kcal: 220 },
+        { name: 'Флэт уайт', kcal: 150 }, { name: 'Какао с молоком 350мл', kcal: 210 },
+        { name: 'Горячий шоколад', kcal: 300 }, { name: 'Чай чёрный без сахара', kcal: 2 },
+        { name: 'Сэндвич с курицей', kcal: 320 }, { name: 'Сэндвич с ветчиной и сыром', kcal: 350 },
+        { name: 'Хот-дог', kcal: 300 }, { name: 'Бургер классический', kcal: 500 },
+        { name: 'Чизбургер', kcal: 550 }, { name: 'Шаурма классическая', kcal: 550 },
+        { name: 'Пицца Маргарита (кусок)', kcal: 250 }, { name: 'Пицца пепперони (кусок)', kcal: 300 },
+        { name: 'Салат Цезарь с курицей', kcal: 380 }, { name: 'Салат овощной', kcal: 120 },
+        { name: 'Суп-пюре овощной (порция)', kcal: 180 }, { name: 'Борщ (порция)', kcal: 250 },
+        { name: 'Гречка варёная, 100г', kcal: 110 }, { name: 'Рис варёный, 100г', kcal: 130 },
+        { name: 'Овсянка на воде, 100г', kcal: 90 }, { name: 'Макароны варёные, 100г', kcal: 160 },
+        { name: 'Картофель варёный, 100г', kcal: 80 }, { name: 'Картофель фри, 100г', kcal: 310 },
+        { name: 'Куриная грудка варёная, 100г', kcal: 165 }, { name: 'Куриная грудка жареная, 100г', kcal: 220 },
+        { name: 'Говядина, 100г', kcal: 250 }, { name: 'Свинина, 100г', kcal: 260 },
+        { name: 'Рыба лосось, 100г', kcal: 200 }, { name: 'Яйцо варёное, 1шт', kcal: 78 },
+        { name: 'Яичница из 2 яиц', kcal: 180 }, { name: 'Творог 5%, 100г', kcal: 120 },
+        { name: 'Йогурт натуральный, 100г', kcal: 60 }, { name: 'Молоко 2.5%, 200мл', kcal: 100 },
+        { name: 'Сыр твёрдый, 30г', kcal: 110 }, { name: 'Хлеб чёрный, 1 кусок', kcal: 65 },
+        { name: 'Хлеб белый, 1 кусок', kcal: 80 }, { name: 'Банан, 1шт', kcal: 90 },
+        { name: 'Яблоко, 1шт', kcal: 50 }, { name: 'Апельсин, 1шт', kcal: 60 },
+        { name: 'Авокадо, 1/2 шт', kcal: 120 }, { name: 'Орехи миндаль, 30г', kcal: 170 },
+        { name: 'Шоколад молочный, 30г', kcal: 160 }, { name: 'Шоколад горький, 30г', kcal: 150 },
+        { name: 'Мороженое пломбир, 100г', kcal: 220 }, { name: 'Йогурт питьевой, 250мл', kcal: 180 }
+    ];
+    // Поиск по подстроке (без учёта регистра), совпадения с начала строки — выше в списке.
+    // Ограничиваем 6 подсказками, чтобы не перегружать выпадашку на телефоне.
+    function searchFoodDb(query) {
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+        return FOOD_DB
+            .filter(f => f.name.toLowerCase().includes(q))
+            .sort((a, b) => a.name.toLowerCase().indexOf(q) - b.name.toLowerCase().indexOf(q))
+            .slice(0, 6);
+    }
+
     const MEALS = [
         { id: 'breakfast', name: 'Завтрак' },
         { id: 'lunch',     name: 'Обед' },
@@ -1598,11 +1677,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const root = document.getElementById('view-food');
         if (!root) return;
         if (!dashState.foodLog) dashState.foodLog = {};
+        if (!dashState.calorieLog) dashState.calorieLog = {};
         const tKey = todayKey();
         const isHistory = !!currentFoodHistoryDate;
         const viewDate = currentFoodHistoryDate || tKey;
-        const dayRec = dashState.foodLog[viewDate] || {};
         const isPro = !!window.hasActiveSubscription;
+        // Pro mode: вместо времени приёма пищи (нормальный режим) — счётчик калорий с автокомплитом
+        // по FOOD_DB (см. HANDOFF.md — юзер попросил заменить механику именно в Pro mode).
+        if (dashState.psychoMode) { renderFoodCalories(root, viewDate, isHistory, isPro); return; }
+        const dayRec = dashState.foodLog[viewDate] || {};
 
         // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма
         // (тот же кнопочный time-scroll-container, что и «во сколько лёг/встал» в чек-апе — см.
@@ -1668,6 +1751,145 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const backBtn = document.getElementById('back-to-today-food-btn');
         if (backBtn) backBtn.addEventListener('click', () => { currentFoodHistoryDate = null; renderFood(); });
+
+        const historyBtn = document.getElementById('history-btn-food');
+        if (historyBtn) historyBtn.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall(); return; }
+            if (isHistory) { currentFoodHistoryDate = null; renderFood(); return; }
+            openCalendar({
+                value: viewDate,
+                onPick: (dateStr) => { currentFoodHistoryDate = dateStr; renderFood(); }
+            });
+        });
+    }
+
+    // Pro mode «Питание»: вместо трёх ячеек завтрак/обед/ужин с временем — счётчик калорий за
+    // день. calorieLog[date] = [{id, name, kcal}] — плоский список позиций (не по приёмам пищи,
+    // юзер добавляет в течение дня как есть). Автокомплит — searchFoodDb по FOOD_DB, плюс ручной
+    // ввод для того, чего нет в базе. Разметка/классы переиспользуют .metric-* из renderPsychoMetrics
+    // (goal-edit-* для инлайн-редактирования цели) — единый стиль с остальным Pro mode.
+    function renderFoodCalories(root, viewDate, isHistory, isPro) {
+        const entries = dashState.calorieLog[viewDate] || [];
+        const total = entries.reduce((s, e) => s + (+e.kcal || 0), 0);
+        const target = dashState.calorieTarget || 2000;
+        const pct = target > 0 ? Math.min(100, Math.round(total / target * 100)) : (total > 0 ? 100 : 0);
+        const over = total > target;
+        const historyIcon = isPro
+            ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>'
+            : LOCK;
+        root.innerHTML = `
+            <div class="checkin-header-row">
+                <h3 class="dash-subtitle" style="margin-bottom:0">Калории${isHistory ? '' : ' сегодня'}</h3>
+                <span class="checkin-date-label" id="date-label-food"></span>
+                <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-food" title="История (Pro mode)">${historyIcon}</button>
+            </div>
+            <div class="metric-row">
+                <div class="metric-top">
+                    <span class="metric-name-wrap"><span class="metric-name">Калории за день</span></span>
+                    <span class="metric-val ${over ? 'over' : ''}"><b>${Math.round(total)}</b> / ${Math.round(target)} ккал</span>
+                </div>
+                <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
+                ${isHistory ? '' : `<div class="metric-actions" id="cal-target-actions"><button class="metric-goal" type="button" id="cal-target-btn">цель ${Math.round(target)} ккал</button></div>`}
+            </div>
+            ${isHistory ? '' : `
+            <div class="cal-add-row">
+                <input type="text" class="formula-input" id="cal-search-input" placeholder="например, булочка" autocomplete="off">
+                <div id="cal-suggestions" class="cal-suggestions"></div>
+            </div>
+            <div class="cal-manual-row">
+                <span class="cal-manual-label">или вручную:</span>
+                <input type="text" class="formula-input" id="cal-manual-name" placeholder="название" maxlength="40">
+                <input type="number" class="formula-input cal-manual-kcal" id="cal-manual-kcal" inputmode="numeric" placeholder="ккал" min="0">
+                <button type="button" class="metric-add" id="cal-manual-add" aria-label="Добавить">＋</button>
+            </div>`}
+            <div class="cal-day-list" id="cal-day-list"></div>
+            ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-food-btn">← Вернуться к сегодня</button>' : ''}`;
+        updateDateLabel('food', isHistory ? viewDate : null);
+
+        const rerender = () => renderFoodCalories(root, viewDate, isHistory, isPro);
+
+        function renderList() {
+            const list = document.getElementById('cal-day-list');
+            if (!list) return;
+            const recs = dashState.calorieLog[viewDate] || [];
+            if (!recs.length) { list.innerHTML = '<div class="dash-habit-limit">Пока пусто — добавь, что съел</div>'; return; }
+            list.innerHTML = recs.map(e => `<div class="cal-item">
+                <span class="cal-item-name">${escAttr(e.name)}</span>
+                <span class="cal-item-kcal">${Math.round(e.kcal)} ккал</span>
+                ${isHistory ? '' : `<button type="button" class="cal-item-del" data-id="${e.id}" aria-label="Удалить">✕</button>`}
+            </div>`).join('');
+            if (!isHistory) list.querySelectorAll('.cal-item-del').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.id)));
+        }
+        renderList();
+
+        function addEntry(name, kcal) {
+            if (!dashState.calorieLog[viewDate]) dashState.calorieLog[viewDate] = [];
+            dashState.calorieLog[viewDate].push({ id: newUid(), name, kcal });
+            saveProgress();
+            rerender();
+        }
+        function removeEntry(id) {
+            dashState.calorieLog[viewDate] = (dashState.calorieLog[viewDate] || []).filter(e => e.id !== id);
+            if (!dashState.calorieLog[viewDate].length) delete dashState.calorieLog[viewDate];
+            saveProgress();
+            rerender();
+        }
+
+        if (isHistory) {
+            const backBtn = document.getElementById('back-to-today-food-btn');
+            if (backBtn) backBtn.addEventListener('click', () => { currentFoodHistoryDate = null; renderFood(); });
+        } else {
+            const searchInput = document.getElementById('cal-search-input');
+            const suggestBox = document.getElementById('cal-suggestions');
+            searchInput.addEventListener('input', () => {
+                const matches = searchFoodDb(searchInput.value);
+                suggestBox.innerHTML = matches.map(m =>
+                    `<button type="button" class="cal-suggestion" data-name="${escAttr(m.name)}" data-kcal="${m.kcal}">${m.name}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`
+                ).join('');
+                suggestBox.style.display = matches.length ? 'block' : 'none';
+            });
+            suggestBox.addEventListener('click', (e) => {
+                const btn = e.target.closest('.cal-suggestion');
+                if (!btn) return;
+                addEntry(btn.dataset.name, +btn.dataset.kcal);
+            });
+            // Enter в поиске не должен никуда уходить — выбор позиции только кликом по подсказке
+            // (значений может совпасть несколько «булочка ...», молчаливый выбор первой — плохой UX).
+            searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+
+            const manualName = document.getElementById('cal-manual-name');
+            const manualKcal = document.getElementById('cal-manual-kcal');
+            const addManual = () => {
+                const name = manualName.value.trim();
+                const kcal = parseFloat(String(manualKcal.value).replace(',', '.'));
+                if (!name || isNaN(kcal) || kcal < 0) return;
+                addEntry(name, kcal);
+            };
+            document.getElementById('cal-manual-add').addEventListener('click', addManual);
+            manualKcal.addEventListener('keydown', (e) => { if (e.key === 'Enter') addManual(); });
+            manualName.addEventListener('keydown', (e) => { if (e.key === 'Enter') manualKcal.focus(); });
+
+            const targetBtn = document.getElementById('cal-target-btn');
+            if (targetBtn) targetBtn.addEventListener('click', () => {
+                const actions = document.getElementById('cal-target-actions');
+                actions.innerHTML = `
+                    <span class="goal-edit-label">цель на день</span>
+                    <input type="number" class="goal-edit-input" inputmode="decimal" value="${Math.round(target)}" min="0">
+                    <span class="goal-edit-unit">ккал</span>
+                    <button class="goal-edit-save" type="button">ОК</button>
+                    <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
+                const gi = actions.querySelector('.goal-edit-input'); gi.focus(); gi.select();
+                const save = () => {
+                    const v = parseFloat(String(gi.value).replace(',', '.'));
+                    if (!isNaN(v) && v >= 0) { dashState.calorieTarget = v; saveProgress(); }
+                    rerender();
+                };
+                actions.querySelector('.goal-edit-save').addEventListener('click', save);
+                actions.querySelector('.goal-edit-cancel').addEventListener('click', rerender);
+                gi.addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); else if (ev.key === 'Escape') rerender(); });
+            });
+        }
 
         const historyBtn = document.getElementById('history-btn-food');
         if (historyBtn) historyBtn.addEventListener('click', (e) => {
@@ -1951,7 +2173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID, статус подписки, правила скидки и бонусных недель за друзей. Добавляй друзей и смотри их успехи.' },
         { target: () => document.querySelector('#top-nav-slot .day-nav-row'), taskViewMode: 'day', text: 'Стрелками листаешь дни вперёд-назад, календарь справа — прыжок на любую дату.' },
         { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на привычку, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
-        { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание, привязать к сфере жизни и удалить.', requiresHabits: true },
+        { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание и удалить.', requiresHabits: true },
         { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 10 регулярных).' },
         { target: () => document.getElementById('task-day-fields'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, текст появляется прямо справа от кнопки.' },
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
@@ -1959,9 +2181,9 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
         { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
         { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
-        { target: () => document.getElementById('btn-morning'), text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
-        { target: () => document.getElementById('btn-evening'), text: 'Вечер — итог дня, благодарность и что улучшить завтра.', feature: 'legacyCheckinFields' },
-        { target: () => document.getElementById('btn-food'), text: 'Питание — дневник завтрака/обеда/ужина и сводка за неделю.' }
+        { target: () => document.getElementById('btn-morning'), switchView: 'morning', text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
+        { target: () => document.getElementById('btn-evening'), switchView: 'evening', text: 'Вечер — итог дня, благодарность и что улучшить завтра.', feature: 'legacyCheckinFields' },
+        { target: () => document.getElementById('btn-food'), switchView: 'food', text: 'Питание — дневник завтрака/обеда/ужина и сводка за неделю.' }
         // «Питомец» (.view-btn[data-view="pet"]) в тур не включён — кнопка скрыта насовсем через
         // CSS (display:none, см. habbittracker.css), это не активная фича, а не флаг вроде games/
         // legacyCheckinFields, которые можно было бы просто прогейтить через FEATURES.
@@ -1996,6 +2218,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Шаги внутри «Задач» указывают нужный normal-mode подвид (taskViewMode) — переключаем и
         // перерисовываем ПЕРЕД поиском таргета, иначе элемент другого подвида ещё не в DOM.
         if (step.taskViewMode && step.taskViewMode !== taskViewMode) { taskViewMode = step.taskViewMode; renderMonthView(); }
+        // Шаги про Чек-ап/Вечер/Питание раньше просто подсвечивали кнопку вкладки, оставаясь на
+        // «Задачах» — юзер попросил реально открывать экран, чтобы было видно содержимое, а не
+        // только кнопку (тур «статично» стоял на одной вкладке). switchView — та же функция, что
+        // и клик по кнопке таб-бара.
+        if (step.switchView) switchView(step.switchView);
         const el = typeof step.target === 'function' ? step.target() : (step.target ? document.querySelector(step.target) : null);
         if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         setTimeout(() => positionCoach(el, step, i), el ? 320 : 0);
@@ -2095,12 +2322,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // Регулярная/Разовая — та же кнопка-пилюля, что День/Месяц (см. taskViewToggleHtml)
         const typeToggle = document.getElementById('habit-type-toggle');
+        const dateField = document.getElementById('setting-date-field');
+        const dateBtn = document.getElementById('setting-date-btn');
+        pendingOneTimeDate = habit.date || newHabitContextDate || todayKey();
+        const renderDateBtn = () => { if (dateBtn) dateBtn.textContent = formatFullDate(pendingOneTimeDate); };
+        renderDateBtn();
+        if (dateBtn) {
+            dateBtn.onclick = () => openCalendar({ value: pendingOneTimeDate, maxDate: '2099-12-31', onPick: (key) => { pendingOneTimeDate = key; renderDateBtn(); } });
+        }
         if (typeToggle) {
             const type = habit.type === 'oneTime' ? 'oneTime' : 'regular';
+            const updateDateFieldVisibility = () => {
+                const active = typeToggle.querySelector('.dm-toggle-btn.active');
+                if (dateField) dateField.style.display = (active && active.dataset.type === 'oneTime') ? '' : 'none';
+            };
             typeToggle.querySelectorAll('.dm-toggle-btn').forEach(b => {
                 b.classList.toggle('active', b.dataset.type === type);
-                b.onclick = () => typeToggle.querySelectorAll('.dm-toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+                b.onclick = () => { typeToggle.querySelectorAll('.dm-toggle-btn').forEach(x => x.classList.toggle('active', x === b)); updateDateFieldVisibility(); };
             });
+            updateDateFieldVisibility();
         }
         const delBtn0 = document.getElementById('settings-delete-btn');
         if (delBtn0) delBtn0.style.display = isCreatingHabit ? 'none' : ''; // создание — удалять пока нечего
@@ -2114,7 +2354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('settings-cancel-btn').replaceWith(cancelBtn);
         document.getElementById('habit-settings-close').replaceWith(closeBtn);
         document.getElementById('settings-delete-btn').replaceWith(delBtn);
-        const close = () => { modal.classList.remove('active'); currentEditIndex = null; isCreatingHabit = false; newHabitContextDate = null; };
+        const close = () => { modal.classList.remove('active'); currentEditIndex = null; isCreatingHabit = false; newHabitContextDate = null; pendingOneTimeDate = null; };
         saveBtn.addEventListener('click', () => { saveSettings(close); });
         cancelBtn.addEventListener('click', close);
         closeBtn.addEventListener('click', close);
@@ -2154,7 +2394,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (isCreatingHabit) {
             const habit = { text: name, completed: false, uid: newUid(), areas, triggerText, reminderTime, type };
-            if (type === 'oneTime') habit.date = newHabitContextDate || todayKey();
+            if (type === 'oneTime') habit.date = pendingOneTimeDate || newHabitContextDate || todayKey();
             dashState.habits.push(habit);
         } else {
             if (currentEditIndex === null) return;
@@ -2164,7 +2404,7 @@ document.addEventListener('DOMContentLoaded', () => {
             h.reminderTime = reminderTime;
             h.areas = areas;
             h.type = type;
-            if (type === 'oneTime' && !h.date) h.date = newHabitContextDate || todayKey();
+            if (type === 'oneTime') h.date = pendingOneTimeDate || h.date || newHabitContextDate || todayKey();
         }
         saveProgress(); renderMonthView();
         if (onSaved) onSaved();
@@ -2386,18 +2626,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function initTrainingMenu() {
         const container = document.getElementById('training-games-container');
         if (!container) return;
-        checkGameUnlock(); // если есть невыбранная разблокировка — предложить выбор
+        // В Pro mode эта вкладка занимает место чек-апа (см. syncProModeTab) — доступ и так за
+        // платной подпиской, поэтому левел-гейт тут не нужен, все игры открыты сразу.
+        const allUnlocked = dashState.psychoMode;
+        if (!allUnlocked) checkGameUnlock(); // если есть невыбранная разблокировка — предложить выбор
         const cards = GAME_ORDER.map(g => {
-            const unlocked = dashState.unlockedGames.includes(g);
+            const unlocked = allUnlocked || dashState.unlockedGames.includes(g);
             return `<div class="training-card${unlocked ? '' : ' locked'}" data-game="${unlocked ? g : ''}">
                 <span class="training-name">${GAMES[g].name}</span>
                 <span class="training-desc">${unlocked ? GAMES[g].desc : 'Откроется с уровнем'}</span>
                 ${unlocked ? '' : `<span class="training-lock">${LOCK}</span>`}
             </div>`;
         }).join('');
-        const remaining = UNLOCK_LEVELS.filter(l => dashState.level < l).slice(0, lockedGames().length);
-        const remainingStr = remaining.length > 1 ? remaining.slice(0, -1).join(', ') + ' и ' + remaining.slice(-1) : remaining[0];
-        const hint = remaining.length ? `<div class="training-hint">Новые игры открываются на ур. ${remainingStr}</div>` : '';
+        let hint = '';
+        if (!allUnlocked) {
+            const remaining = UNLOCK_LEVELS.filter(l => dashState.level < l).slice(0, lockedGames().length);
+            const remainingStr = remaining.length > 1 ? remaining.slice(0, -1).join(', ') + ' и ' + remaining.slice(-1) : remaining[0];
+            hint = remaining.length ? `<div class="training-hint">Новые игры открываются на ур. ${remainingStr}</div>` : '';
+        }
         container.innerHTML = `<div class="training-menu">${cards}</div>${hint}`;
         container.querySelectorAll('.training-card:not(.locked)').forEach(card => {
             card.addEventListener('click', () => startTrainingGame(card.dataset.game));
@@ -2493,7 +2739,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderCountGame(container) {
         container.innerHTML = `
             <div class="game-setup" id="count-setup"><h3 style="margin-bottom:15px">Выбери сложность</h3><button class="difficulty-btn" data-diff="1">1-9</button><button class="difficulty-btn" data-diff="2">10-99</button><button class="difficulty-btn" data-diff="3">100-999</button></div>
-            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="number" class="game-input" id="count-input" placeholder="?" autocomplete="off"></div>
+            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="number" class="game-input" id="count-input" inputmode="numeric" placeholder="?" autocomplete="off"></div>
             <button class="training-back-btn" id="training-back">← Назад</button>`;
         let difficulty = 1, timer = 60, correct = 0, total = 0, currentEq = null;
         function getRandom(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -2759,7 +3005,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === КНОПКИ ПЕРЕКЛЮЧЕНИЯ ===
     document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.addEventListener('click', () => switchView(btn.dataset.view));
+        btn.addEventListener('click', () => {
+            // В Pro mode кнопка «Чек-ап» подменена на «Игры» (см. syncProModeTab) — ведёт на
+            // #view-training вместо #view-morning, сама кнопка (data-view) не меняется.
+            const view = (btn.dataset.view === 'morning' && dashState.psychoMode) ? 'training' : btn.dataset.view;
+            switchView(view);
+        });
     });
 
     // === «СОБЫТИЕ ДНЯ» / «ЗАДАЧА ДНЯ» ===
@@ -2953,6 +3204,34 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(measureBottomBar, 300);
     setTimeout(measureBottomBar, 1200);
     window.addEventListener('resize', measureBottomBar);
+
+    // === МОДАЛКИ НАД КЛАВИАТУРОЙ (мобильная адаптация) ===
+    // На мобильном (особенно в Telegram WebView) `position:fixed` центрируется по ПОЛНОЙ высоте
+    // layout-вьюпорта, а не по видимой области — когда открывается системная клавиатура, видимая
+    // область (visualViewport) сжимается, но фиксированная модалка остаётся «отцентрована» по
+    // старой полной высоте и может уехать за клавиатуру вместе с полем ввода. Держим модалку
+    // подогнанной под текущий visualViewport (юзер попросил: «поднимать окно... чтоб было видно
+    // где пишешь»). Работает для всех модалок на классе .habit-settings-modal (настройки задачи,
+    // событие/задача дня, подтверждение, пейволл) — они все текстовые «окна для написания».
+    if (window.visualViewport) {
+        const vv = window.visualViewport;
+        const repositionModals = () => {
+            document.querySelectorAll('.habit-settings-modal.active').forEach(overlay => {
+                overlay.style.height = vv.height + 'px';
+                overlay.style.top = vv.offsetTop + 'px';
+            });
+        };
+        vv.addEventListener('resize', repositionModals);
+        vv.addEventListener('scroll', repositionModals);
+        // На случай если модалка открывается, пока клавиатура уже поднята (напр. повторное
+        // открытие) — подгоняем сразу при открытии, а не ждём следующего resize.
+        document.addEventListener('focusin', (e) => {
+            if (e.target.closest && e.target.closest('.habit-settings-modal.active')) {
+                repositionModals();
+                setTimeout(repositionModals, 300); // клавиатура анимируется — догоняем после анимации
+            }
+        });
+    }
 
     // === СВАЙП МЕЖДУ ВКЛАДКАМИ (мобильная адаптация) ===
     // Влево — следующая вкладка, вправо — предыдущая. Порядок берём из видимых кнопок таб-бара
