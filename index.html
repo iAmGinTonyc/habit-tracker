@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=33">
+    <link rel="stylesheet" href="habbittracker.css?v=34">
 </head>
 <body>
 
@@ -106,7 +106,7 @@
                         <div class="checkin-form" id="morning-form" data-type="morning">
                             <div class="checkin-group"><label>Во сколько лёг спать?</label><div class="time-scroll-container" data-key="sleepTime"></div></div>
                             <div class="checkin-group"><label>Во сколько проснулся?</label><div class="time-scroll-container" data-key="wakeTime"></div></div>
-                            <div class="checkin-group checkin-extra-sleep"><label>Добавить часы сна</label><input type="number" inputmode="decimal" enterkeyhint="done" class="checkin-text" data-key="extraSleepHours" min="0" max="12" step="0.5" placeholder="если спал урывками, например 1.5"></div>
+                            <div class="checkin-group checkin-extra-sleep"><label>Добавить часы сна</label><input type="text" inputmode="decimal" enterkeyhint="done" class="checkin-text" data-key="extraSleepHours" min="0" max="12" step="0.5" placeholder="если спал урывками, например 1.5"></div>
                             <div class="checkin-group"><label>Качество сна</label><div class="scale-container" data-key="sleepQuality"></div></div>
                             <div class="checkin-group"><label>Настроение</label><div class="scale-container" data-key="mood"></div></div>
                             <div class="checkin-group"><label>Уровень энергии</label><div class="scale-container" data-key="energy"></div></div>
@@ -385,7 +385,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=33"></script>
-    <script type="module" src="auth.js?v=33"></script>
+    <script src="habbittracker.js?v=34"></script>
+    <script type="module" src="auth.js?v=34"></script>
 </body>
 </html>

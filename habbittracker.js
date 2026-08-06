@@ -1489,7 +1489,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
                 <div class="metric-actions">
-                    <input type="number" class="metric-input" inputmode="decimal" placeholder="+ значение"${m.step ? ` step="${m.step}"` : ''}>
+                    <input type="text" class="metric-input" inputmode="decimal" enterkeyhint="done" placeholder="+ значение"${m.step ? ` step="${m.step}"` : ''}>
                     <button class="metric-add" type="button" aria-label="Добавить">＋</button>
                     <button class="metric-goal" type="button">${isLimit ? 'лимит' : 'цель'} ${fmtNum(target)}${m.unit ? ' ' + m.unit : ''}</button>
                     ${val ? '<button class="metric-reset" type="button">сброс</button>' : ''}
@@ -1525,7 +1525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actions = row.querySelector('.metric-actions');
                 actions.innerHTML = `
                     <span class="goal-edit-label">${isLimit ? 'лимит на день' : 'цель на день'}</span>
-                    <input type="number" class="goal-edit-input" inputmode="decimal" value="${target}" min="0"${m.step ? ` step="${m.step}"` : ''}>
+                    <input type="text" class="goal-edit-input" inputmode="decimal" enterkeyhint="done" value="${target}" min="0"${m.step ? ` step="${m.step}"` : ''}>
                     ${m.unit ? `<span class="goal-edit-unit">${m.unit}</span>` : ''}
                     <button class="goal-edit-save" type="button">ОК</button>
                     <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
@@ -1571,7 +1571,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button type="button" class="pam-type-btn active" data-type="goal">цель</button>
                             <button type="button" class="pam-type-btn" data-type="limit">лимит</button>
                         </div>
-                        <input type="number" class="pam-target" inputmode="decimal" placeholder="значение" min="0">
+                        <input type="text" class="pam-target" inputmode="decimal" enterkeyhint="done" placeholder="значение" min="0">
                         <input type="text" class="pam-unit" maxlength="8" placeholder="ед. (необяз.)">
                     </div>
                     <div class="pam-actions">
@@ -2090,7 +2090,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="cal-manual-row">
                 <span class="cal-manual-label">или вручную:</span>
                 <input type="text" class="formula-input" id="cal-manual-name" placeholder="название" maxlength="40">
-                <input type="number" class="formula-input cal-manual-kcal" id="cal-manual-kcal" inputmode="numeric" placeholder="ккал" min="0">
+                <input type="text" class="formula-input cal-manual-kcal" id="cal-manual-kcal" inputmode="numeric" enterkeyhint="done" placeholder="ккал" min="0">
                 <button type="button" class="metric-add" id="cal-manual-add" aria-label="Добавить">＋</button>
             </div>`}
             <div class="cal-day-list" id="cal-day-list"></div>
@@ -2172,7 +2172,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const actions = document.getElementById('cal-target-actions');
                 actions.innerHTML = `
                     <span class="goal-edit-label">цель на день</span>
-                    <input type="number" class="goal-edit-input" inputmode="decimal" value="${Math.round(target)}" min="0">
+                    <input type="text" class="goal-edit-input" inputmode="decimal" enterkeyhint="done" value="${Math.round(target)}" min="0">
                     <span class="goal-edit-unit">ккал</span>
                     <button class="goal-edit-save" type="button">ОК</button>
                     <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
@@ -3075,7 +3075,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderCountGame(container) {
         container.innerHTML = `
             <div class="game-setup" id="count-setup"><h3 style="margin-bottom:15px">Выбери сложность</h3><button class="difficulty-btn" data-diff="1">1-9</button><button class="difficulty-btn" data-diff="2">10-99</button><button class="difficulty-btn" data-diff="3">100-999</button></div>
-            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="number" class="game-input" id="count-input" inputmode="numeric" enterkeyhint="done" placeholder="?" autocomplete="off"></div>
+            <div class="game-area" id="count-area" style="display:none"><div class="game-timer" id="count-timer">60</div><div class="game-equation" id="count-equation"></div><input type="text" class="game-input" id="count-input" inputmode="numeric" enterkeyhint="done" placeholder="?" autocomplete="off"></div>
             <button class="training-back-btn" id="training-back">← Назад</button>`;
         let difficulty = 1, timer = 60, correct = 0, total = 0, currentEq = null;
         function getRandom(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -3108,6 +3108,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('back-count').onclick = () => initTrainingMenu();
         }
         document.querySelectorAll('#count-setup .difficulty-btn').forEach(btn => btn.addEventListener('click', (e) => start(parseInt(e.target.dataset.diff))));
+        // type="text" (не "number") — только так iOS показывает Enter на цифровой раскладке (см.
+        // HANDOFF.md), поэтому сами фильтруем нецифровые символы вместо валидации браузером.
+        document.getElementById('count-input')?.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); });
         document.getElementById('count-input')?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && currentEq) {
                 e.preventDefault();
@@ -3429,18 +3432,27 @@ document.addEventListener('DOMContentLoaded', () => {
         onDayFieldsChanged = onChange;
         const eventText = (dashState.dayEvents || {})[dateKey] || '';
         const tasks = getDayTasks(dateKey);
-        const tasksHtml = tasks.map((t, i) => `<span class="day-task-inline${t.done ? ' done' : ''}" data-idx="${i}">${t.text}</span>`).join('');
+        // Своя строка «Задача дня» на КАЖДУЮ уже добавленную задачу + ОДНА пустая строка сверху
+        // лимита, чтобы можно было добавить следующую (юзер: не показывать сразу все 3 кнопки,
+        // если ни одна задача не заполнена — следующая появляется только после заполнения
+        // предыдущей). При достижении DAY_TASKS_MAX пустой строки уже нет.
+        const rowsCount = Math.min(tasks.length + 1, DAY_TASKS_MAX);
+        let taskRows = '';
+        for (let i = 0; i < rowsCount; i++) {
+            const t = tasks[i];
+            taskRows += `<div class="day-field-row">
+                <button type="button" class="day-event-btn day-task-btn">Задача дня</button>
+                ${t ? `<span class="day-task-inline${t.done ? ' done' : ''}" data-idx="${i}">${t.text}</span>` : ''}
+            </div>`;
+        }
         container.innerHTML = `
             <div class="day-field-row">
                 <button type="button" class="day-event-btn" id="open-day-event-btn">Событие дня</button>
                 ${eventText ? `<span class="day-event-inline">${eventText}</span>` : ''}
             </div>
-            <div class="day-field-row">
-                <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
-                ${tasksHtml}
-            </div>`;
+            ${taskRows}`;
         document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
-        document.getElementById('open-day-task-btn').addEventListener('click', () => openDayTaskModal(dateKey));
+        container.querySelectorAll('.day-task-btn').forEach(btn => btn.addEventListener('click', () => openDayTaskModal(dateKey)));
         container.querySelectorAll('.day-task-inline').forEach(el => el.addEventListener('click', () => {
             const arr = getDayTasks(dateKey);
             const idx = +el.dataset.idx;
