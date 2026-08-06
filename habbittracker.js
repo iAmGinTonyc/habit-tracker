@@ -3117,9 +3117,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ans = parseInt(e.target.value);
                 if (!isNaN(ans)) {
                     total++; const isCorrect = (ans === currentEq.result);
-                    if (isCorrect) { correct++; document.getElementById('count-area').style.backgroundColor = '#e8f5e9'; }
-                    else { document.getElementById('count-area').style.backgroundColor = '#ffebee'; }
-                    setTimeout(() => { document.getElementById('count-area').style.backgroundColor = ''; }, 250);
+                    if (isCorrect) correct++;
+                    // Подсвечиваем только само поле ввода (юзер попросил — раньше красился весь
+                    // #count-area целиком). filter:invert(1) на самом элементе отменяет инверсию
+                    // Pro mode (игры теперь живут только там, см. HANDOFF.md §34/36) — без него
+                    // зелёный/красный визуально менялись местами под общим invert(1) дашборда.
+                    e.target.style.backgroundColor = isCorrect ? '#c8e6c9' : '#ffcdd2';
+                    e.target.style.filter = 'invert(1)';
+                    setTimeout(() => { e.target.style.backgroundColor = ''; e.target.style.filter = ''; }, 250);
                     showEq();
                 }
             }
