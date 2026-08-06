@@ -27,27 +27,6 @@ function json(body: unknown, status = 200) {
 const PRICE_PERSONAL_STARS = 250;
 const PRICE_FAMILY_PER_PERSON_STARS = 300;
 
-// Скидка 50% за «идеальный» предыдущий календарный месяц — 5+ задач КАЖДЫЙ день, отмеченных
-// день-в-день (см. db/phase7_trial_referral_discount.sql: record_today_completion() физически не
-// даёт задним числом попасть в daily_completions, так что здесь просто читаем готовый леджер).
-// Всегда по СОБСТВЕННОЙ записи покупателя, даже для Family — не по записям всей семьи.
-const MIN_TASKS_PER_DAY = 5;
-async function isDiscountEligible(sb: ReturnType<typeof createClient>, userId: string): Promise<boolean> {
-  const now = new Date();
-  const prevMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-  const prevMonthStart = new Date(Date.UTC(prevMonthEnd.getUTCFullYear(), prevMonthEnd.getUTCMonth(), 1));
-  const daysInPrevMonth = prevMonthEnd.getUTCDate();
-  const { data, error } = await sb
-    .from('daily_completions')
-    .select('day, completed_count')
-    .eq('user_id', userId)
-    .gte('day', prevMonthStart.toISOString().slice(0, 10))
-    .lte('day', prevMonthEnd.toISOString().slice(0, 10));
-  if (error || !data) return false;
-  if (data.length < daysInPrevMonth) return false; // хотя бы один день без записи вообще
-  return data.every((row) => (row.completed_count ?? 0) >= MIN_TASKS_PER_DAY);
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (!BOT_TOKEN) return json({ error: 'server_misconfigured_no_bot_token' }, 500);
@@ -66,30 +45,25 @@ Deno.serve(async (req) => {
     const { plan, familySize } = await req.json();
     if (plan !== 'personal' && plan !== 'family') return json({ error: 'bad_plan' }, 400);
 
-    const discountApplied = await isDiscountEligible(sb, userId);
-    const discountMul = discountApplied ? 0.5 : 1;
-
     let stars: number;
     let title: string;
     let description: string;
     let size: number | null = null;
 
     if (plan === 'personal') {
-      stars = Math.round(PRICE_PERSONAL_STARS * discountMul);
+      stars = PRICE_PERSONAL_STARS;
       title = 'LiveLife Personal';
-      description = discountApplied ? 'Личный план — 1 месяц (скидка 50% за идеальный месяц)' : 'Личный план — 1 месяц';
+      description = 'Личный план — 1 месяц';
     } else {
       size = Math.max(2, Math.min(10, Math.round(Number(familySize)) || 2));
-      stars = Math.round(PRICE_FAMILY_PER_PERSON_STARS * size * discountMul);
+      stars = PRICE_FAMILY_PER_PERSON_STARS * size;
       title = 'LiveLife Family';
-      description = discountApplied
-        ? `Семейный план на ${size} человек — 1 месяц (скидка 50% за идеальный месяц)`
-        : `Семейный план на ${size} человек — 1 месяц`;
+      description = `Семейный план на ${size} человек — 1 месяц`;
     }
 
     // payload вернётся нам же в successful_payment (см. telegram-payments-webhook) — кодируем,
     // кто и что купил, чтобы правильно обновить subscriptions после оплаты.
-    const payload = JSON.stringify({ user_id: userId, plan, family_size: size, discount_applied: discountApplied });
+    const payload = JSON.stringify({ user_id: userId, plan, family_size: size });
 
     const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/createInvoiceLink`, {
       method: 'POST',
@@ -109,7 +83,7 @@ Deno.serve(async (req) => {
       return json({ error: 'telegram_api_error', detail: tgData.description }, 502);
     }
 
-    return json({ link: tgData.result, discountApplied });
+    return json({ link: tgData.result });
   } catch (e) {
     await logError('create-invoice', 'unexpected', { detail: e });
     return json({ error: 'unexpected', detail: String(e) }, 500);

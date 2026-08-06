@@ -275,13 +275,25 @@ window.syncStats = syncStats;
 async function syncMyStats() {
   if (!me || !window.getSummary) return;
   const s = window.getSummary();
+  // level больше не шлём — механика уровней убрана из семейного вида по просьбе юзера (в самом
+  // приложении она и так уже скрыта FEATURES.xpLevels, семья была единственной оставшейся утечкой).
   await sb.from('stats').upsert({
     id: me,
     name: myDisplayName || defaultName(),
-    level: s.level, streak: s.streak, week_pct: s.weekPct, mood: s.mood,
+    streak: s.streak, week_pct: s.weekPct, mood: s.mood,
     updated_at: new Date().toISOString()
   });
 }
+
+// === УВЕДОМЛЕНИЕ СЕМЬИ/ДРУЗЕЙ ПРИ НИЗКОМ НАСТРОЕНИИ (Фаза 15) ===
+// Вызывается из habbittracker.js сразу по клику на шкале настроения, если значение < 4 — сама
+// функция (notify-mood-alert) решает, кому слать и дедупит «раз в день» на сервере, тут просто
+// fire-and-forget, чтобы не блокировать UI ожиданием сети.
+function notifyMoodAlert(mood) {
+  if (!me) return;
+  sb.functions.invoke('notify-mood-alert', { body: { mood } }).catch((e) => console.error('notify-mood-alert:', e));
+}
+window.notifyMoodAlert = notifyMoodAlert;
 
 // === СИНХРОНИЗАЦИЯ ВСЕГО ПРОГРЕССА МЕЖДУ УСТРОЙСТВАМИ (Фаза 11) ===
 // Раньше синкалась только сводка (stats выше) — сами привычки/история/чек-апы/питание/метрики жили
@@ -339,22 +351,6 @@ function subscribeAppStateRealtime() {
 function unsubscribeAppStateRealtime() {
   if (appStateChannel) { sb.removeChannel(appStateChannel); appStateChannel = null; }
 }
-
-// === ЛЕДЖЕР ВЫПОЛНЕНИЯ ЗАДАЧ ЗА СЕГОДНЯ (Фаза 7 — источник правды для скидки) ===
-// Вызывается ТОЛЬКО когда меняется отметка СЕГОДНЯШНЕГО дня (см. habbittracker.js) — записывать
-// прошлые дни задним числом сюда бессмысленно: record_today_completion (db/phase7_…sql) всё
-// равно проставляет day = current_date на сервере, что бы клиент ни прислал.
-let completionSyncTimer = null;
-function syncTodayCompletion(count) {
-  clearTimeout(completionSyncTimer);
-  completionSyncTimer = setTimeout(() => {
-    if (!me) return;
-    sb.rpc('record_today_completion', { p_count: count }).then(({ error }) => {
-      if (error) console.error('record_today_completion:', error.message);
-    });
-  }, 1500);
-}
-window.syncTodayCompletion = syncTodayCompletion;
 
 // === ТАЙМЗОНА + АКТИВНОСТЬ (Фаза 8 — ежедневное пуш-напоминание в 20:00 по локали) ===
 // Пишем при каждом успешном входе (см. refresh()) — обычный update, доп. RLS не нужна (own
@@ -599,7 +595,7 @@ function renderInvitedFriends(list, statsById) {
     const s = isFamily ? statsById[inv.from_id] : null;
     const name = (s && s.name) || inv.from_code || '—';
     const statsHtml = s
-      ? `<div class="fam-stats"><span>ур. ${s.level ?? 0}</span><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
+      ? `<div class="fam-stats"><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
       : '';
     return `<div class="fam-friend">
       <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}</div>

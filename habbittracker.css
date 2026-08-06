@@ -152,6 +152,12 @@
    .day-task-inline::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #aaa; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
    .day-task-inline.done { color: #aaa; }
    .day-task-inline.done::after { width: 100%; }
+   /* Список задач дня в модалке (до 3 шт, см. renderDayTaskModalList) — та же зачёркивающая
+      анимация, что и .day-task-inline, но flex:1 внутри строки .cal-item рядом с кнопкой удаления. */
+   .day-task-list-text { flex: 1; font-size: 14px; color: #111; position: relative; cursor: pointer; transition: color 0.3s ease; min-width: 0; }
+   .day-task-list-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #aaa; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+   .day-task-list-text.done { color: #aaa; }
+   .day-task-list-text.done::after { width: 100%; }
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
    .task-day-list { margin-top: 6px; }
@@ -423,15 +429,6 @@ canvas { width: 100%; height: 150px; }
    #training-games-container .game-input { padding: 10px; font-size: 22px; width: 130px; text-align: center; border: 2px solid #e5e5e5; border-radius: 8px; margin-top: 18px; }
    #training-games-container .difficulty-btn { display: block; margin: 8px auto; padding: 10px 18px; font-size: 14px; width: 220px; border: 2px solid #111; border-radius: 8px; background: #fff; color: #111; cursor: pointer; }
    #training-games-container .difficulty-btn:hover { background: #111; color: #fff; }
-   
-   #training-games-container #game-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 100%; max-width: 450px; margin: 0 auto; }
-   #training-games-container .card { position: relative; aspect-ratio: 2/3; border-radius: 6px; cursor: pointer; background: #f5f5f5; border: 1px solid #e5e5e5; transition: transform 0.2s; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-   #training-games-container .card:hover { transform: scale(1.02); border-color: #111; }
-   #training-games-container .card.flipped, #training-games-container .card.matched { border-color: #111; background: #fff; }
-   #training-games-container .card img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
-   #training-games-container .card.flipped img, #training-games-container .card.matched img { opacity: 1; }
-   #training-games-container .card .card-back { position: absolute; inset: 0; background: linear-gradient(135deg, #e5e5e5 0%, #f0f0f0 100%); display: flex; align-items: center; justify-content: center; font-size: 20px; color: #888; font-weight: bold; border-radius: 4px; }
-   #training-games-container .card.flipped .card-back, #training-games-container .card.matched .card-back { display: none; }
    
    #training-games-container .word-placeholders { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 18px; }
    #training-games-container .word-placeholder { width: 75px; height: 32px; border: 1px solid #e5e5e5; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #666; background: #fafafa; }
@@ -932,14 +929,12 @@ canvas { width: 100%; height: 150px; }
        .vb-ico { font-size: 16px; }
        .vb-txt { font-size: 9px; }
        .scale-btn { width: 22px; height: 22px; font-size: 9px; }
-       #training-games-container #game-grid { grid-template-columns: repeat(3, 1fr); }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
        .hm-label { min-width: 0; } /* даёт ellipsis сработать при нехватке места рядом со счётчиком */
    }
    @media (max-width: 400px) {
        .training-menu { grid-template-columns: 1fr; }
-       #training-games-container #game-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
        .level-up-wolf { width: 280px; }
        .vb-txt { font-size: 8px; }
    }

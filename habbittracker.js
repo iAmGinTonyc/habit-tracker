@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkinHistory: {},
         history: {},        // постоянный лог выполнения привычек: { 'YYYY-MM-DD': { uid: true } }
         foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { breakfast:{time,text}, lunch, dinner } }
-        gameRecords: {},    // личные рекорды мини-игр: { memory:{bestTimeMs}, sudoku:{bestTimeMs}, count:{bestCorrect}, words:{bestCorrect} }
+        gameRecords: {},    // личные рекорды мини-игр: { sudoku:{bestTimeMs}, count:{bestCorrect}, words:{bestCorrect} }
         calorieLog: {},     // Pro mode «Питание»: { 'YYYY-MM-DD': [{ id, name, kcal }] } — см. renderFoodCalories
         calorieTarget: 2000, // дневная цель ккал в Pro mode, переопределяется юзером
         psychoMode: false,  // тумблер «psycho mode» (числовые метрики вместо привычек)
@@ -685,15 +685,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
     const GAMES = {
-        memory: { name: 'Найди пару', desc: 'Тренировка памяти' },
         count:  { name: 'Посчитай', desc: 'Быстрый счёт на время' },
         words:  { name: '10 слов', desc: 'Запомни и введи' },
         sudoku: { name: 'Быстрое судоку', desc: 'По пропуску в квадрате' }
     };
-    const GAME_ORDER = ['memory', 'count', 'words', 'sudoku'];
+    const GAME_ORDER = ['count', 'words', 'sudoku']; // «Найди пару» убрана по просьбе юзера
     // Ключ рекорда каждой игры + как его показать в меню (см. initTrainingMenu/updateGameRecord).
     const GAME_RECORD_META = {
-        memory: { key: 'bestTimeMs', fmt: (v) => fmtGameTime(v) },
         sudoku: { key: 'bestTimeMs', fmt: (v) => fmtGameTime(v) },
         count:  { key: 'bestCorrect', fmt: (v) => `${v} верных` },
         words:  { key: 'bestCorrect', fmt: (v) => `${v} верных` }
@@ -857,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             const note = document.createElement('div');
             note.className = 'dash-habit-limit';
-            note.textContent = `Максимум ${MAX_HABITS} привычек`;
+            note.textContent = `Максимум ${MAX_HABITS} задач`;
             list.appendChild(note);
         }
         if (FEATURES.lifeWheel) renderLifeWheel('day', 'life-wheel-day'); // колесо отражает выполнение
@@ -975,8 +973,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="month-stat"><span>${st.pct}%</span>прогресс</div>
             </div>
             <div class="month-progress"><div class="month-progress-fill" style="width:${st.pct}%"></div></div>
-            <div class="month-hint">нажми на привычку, чтобы открыть календарь отметок</div>
-            ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет привычек — добавь ниже.</p>`}
+            <div class="month-hint">нажми на задачу, чтобы открыть календарь отметок</div>
+            ${habits.length ? `<div class="heatmap" id="heatmap"></div>` : `<p class="month-empty">Пока нет задач — добавь ниже.</p>`}
             <div id="month-habit-add"></div>
             ${FEATURES.lifeWheel ? `<div class="month-wheel-block"><div id="life-wheel-month"></div></div>` : ''}
         `;
@@ -992,7 +990,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-month">+ добавить задачу</button>`;
                 addBox.querySelector('#add-habit-btn-month').addEventListener('click', () => openNewHabitModal(todayKey()));
             } else {
-                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
+                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} задач</div>`;
             }
         }
 
@@ -1066,7 +1064,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Отметить/снять привычку за конкретный день — версия toggleHabit/клика по клетке heatmap для
     // простого списка normal-mode «День» (без тепловой карты и анимации раскрытия — юзер попросил
     // просто оставлять зачёркнутой, не открывая историю месяца по этой задаче). За СЕГОДНЯ —
-    // та же history-запись/XP/леджер скидки, что и везде; за прошлые дни — тот же retroactive-режим,
+    // та же history-запись/XP, что и везде; за прошлые дни — тот же retroactive-режим,
     // что уже разрешён в тепловой карте, просто без начисления XP. Будущее — недоступно.
     function toggleHabitForDate(habit, dateKey) {
         if (dateKey > todayKey()) return null;
@@ -1075,7 +1073,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dateKey === todayKey()) {
             habit.completed = now;
             if (now && habit.xpDate !== todayKey()) { habit.xpDate = todayKey(); awardXP(getLevelStats(dashState.level).xpPerHabit); }
-            if (window.syncTodayCompletion) window.syncTodayCompletion((dashState.habits || []).filter(h => isDone(h.uid, todayKey())).length);
         }
         saveProgress();
         return now;
@@ -1113,7 +1110,7 @@ document.addEventListener('DOMContentLoaded', () => {
         root.innerHTML = `
             ${taskViewToggleHtml()}
             <div id="task-day-fields"></div>
-            ${listsHtml || '<p class="month-empty">Пока нет привычек — добавь ниже.</p>'}
+            ${listsHtml || '<p class="month-empty">Пока нет задач — добавь ниже.</p>'}
             <div id="task-day-add"></div>`;
         wireDayNavHeader('task-day-nav', dateKey, (newKey) => { currentTaskDate = newKey; renderTaskDayView(newKey); });
         wireTaskViewToggle(root);
@@ -1142,7 +1139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 addBox.innerHTML = `<button type="button" class="dash-habit-add-btn" id="add-habit-btn-day">+ добавить задачу</button>`;
                 addBox.querySelector('#add-habit-btn-day').addEventListener('click', () => openNewHabitModal(dateKey));
             } else {
-                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} привычек</div>`;
+                addBox.innerHTML = `<div class="dash-habit-limit">Максимум ${MAX_HABITS} задач</div>`;
             }
         }
     }
@@ -1393,7 +1390,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!el) return;
         const anyAreas = (dashState.habits || []).some(h => (h.areas || []).length);
         if (!anyAreas) {
-            el.innerHTML = `<div class="wheel-empty">Колесо жизни заполнится, когда привяжешь привычки к сферам — в настройках привычки (кнопка «⋯»).</div>`;
+            el.innerHTML = `<div class="wheel-empty">Колесо жизни заполнится, когда привяжешь задачи к сферам — в настройках задачи (кнопка «⋯»).</div>`;
             return;
         }
         el.innerHTML = lifeWheelSVG(areaFractions(scope, y, m));
@@ -2468,18 +2465,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // нижнего меню) — глобальный chrome вне .dash-content (index.html), в DOM всегда, независимо
     // от активной вкладки, переключать вкладку под них не нужно.
     const DAY_TOUR = [
-        { text: 'Привет! Это трекер привычек и твоего состояния. 14 дней — бесплатно, дальше нужна подписка (либо бесплатные недели за приглашённых друзей). Покажу за минуту, что где.' },
+        { text: 'Привет! Это трекер задач и твоего состояния. 14 дней — бесплатно, дальше нужна подписка (либо бесплатные недели за приглашённых друзей). Покажу за минуту, что где.' },
         { target: () => document.getElementById('help-btn'), text: 'Этот значок открывает тур заново в любой момент, если что-то забудешь.' },
-        { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID, статус подписки, правила скидки и бонусных недель за друзей. Добавляй друзей и смотри их успехи.' },
+        { target: () => document.getElementById('profile-btn'), text: 'Кнопка профиля — там твой ID, статус подписки и бонусных недель за друзей. Добавляй друзей и смотри их успехи.' },
         { target: () => document.querySelector('#top-nav-slot .day-nav-row'), taskViewMode: 'day', text: 'Стрелками листаешь дни вперёд-назад, календарь справа — прыжок на любую дату.' },
-        { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на привычку, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
-        { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать привычку, поставить напоминание и удалить.', requiresHabits: true },
+        { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на задачу, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
+        { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать задачу, поставить напоминание и удалить.', requiresHabits: true },
         { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 10 регулярных).' },
         { target: () => document.getElementById('task-day-fields'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, текст появляется прямо справа от кнопки.' },
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
-        { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на привычку — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
-        { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи привычки к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
-        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка привычек. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
+        { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на задачу — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
+        { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи задачи к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
+        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка задач. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
         { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
         { target: () => document.getElementById('btn-morning'), switchView: 'morning', text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
         { target: () => document.getElementById('btn-evening'), switchView: 'evening', text: 'Вечер — итог дня, благодарность и что улучшить завтра.', feature: 'legacyCheckinFields' },
@@ -2490,7 +2487,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     const VIEW_HINTS = {
-        month:   'В «Месяце» — прогресс за месяц по каждой привычке. Нажми на привычку, чтобы открыть календарь и отметить любой день, включая задний числом.',
+        month:   'В «Месяце» — прогресс за месяц по каждой задаче. Нажми на задачу, чтобы открыть календарь и отметить любой день, включая задний числом.',
         morning: 'Чек-ап дня: время сна и подъёма, качество сна, настроение, энергия и здоровье — шкалами 1–10, сохраняется автоматически. Ниже — графики за текущий месяц: настроение/сон/энергия/здоровье и отдельно часы сна.',
         evening: 'Вечерний чек-ап: оценка дня, за что благодарен и что улучшить завтра.',
         food:    'Питание: для завтрака/обеда/ужина отметь время кнопкой и коротко запиши, что ел — сохраняется сразу. Ниже — сводка по дням за эту неделю.'
@@ -2778,6 +2775,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
                         dashState.checkins[prefix][key] = i;
                         autoSaveCheckin(prefix);
+                        // Юзер попросил: если настроение ниже 4 — семья/друзья узнают об этом
+                        // пушем в боте (см. notify-mood-alert). Дедуп «раз в день» — на сервере.
+                        if (key === 'mood' && i < 4 && window.notifyMoodAlert) window.notifyMoodAlert(i);
                     });
                     container.appendChild(btn);
                 }
@@ -2986,7 +2986,6 @@ document.addEventListener('DOMContentLoaded', () => {
         stopTrainingGame();
         switch (gameName) {
             case 'count': renderCountGame(container); break;
-            case 'memory': renderMemoryGame(container); break;
             case 'words': renderWordsGame(container); break;
             case 'sudoku': renderSudokuGame(container); break;
         }
@@ -3016,7 +3015,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const edgeR = (r % 3 === 0 && r !== 0) ? ' br-top' : '';
             const edgeC = (c % 3 === 0 && c !== 0) ? ' br-left' : '';
             if (blanks[`${r}-${c}`] !== undefined) {
-                cells += `<input class="sudoku-cell blank${edgeR}${edgeC}" inputmode="numeric" maxlength="1" data-key="${r}-${c}">`;
+                cells += `<input class="sudoku-cell blank${edgeR}${edgeC}" inputmode="numeric" enterkeyhint="done" maxlength="1" data-key="${r}-${c}">`;
             } else {
                 cells += `<div class="sudoku-cell given${edgeR}${edgeC}">${solution[r][c]}</div>`;
             }
@@ -3126,68 +3125,11 @@ document.addEventListener('DOMContentLoaded', () => {
         start(1);
     }
 
-    function renderMemoryGame(container) {
-        // Имена файлов — актуальная колода в pics/ (юзер заменил картинки, старые "Буби 2.png" и
-        // т.п. больше не существуют физически, каждая карта падала на серый placeholder через
-        // img.onerror). Реальные файлы: `{ранг}_of_{масть}.png`, ранги 2-10 и J/Q/K/A.
-        const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-        const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'];
-        const allCardImages = SUITS.flatMap(suit => RANKS.map(rank => `${rank}_of_${suit}.png`));
-        const selectedImages = [...allCardImages].sort(() => Math.random() - 0.5).slice(0, 8);
-        let cards = [], flipped = [], matchedPairs = 0, moves = 0, canFlip = true;
-        container.innerHTML = `<div class="game-timer" id="memory-timer">0.0 с</div><div id="game-grid" style="grid-template-columns:repeat(4,1fr);gap:5px;width:100%;max-width:400px;margin:0 auto"></div><button class="training-back-btn" id="training-back">← Назад</button>`;
-        const gameGrid = document.getElementById('game-grid');
-        // Личный рекорд тут — время до полного нахождения всех пар (см. HANDOFF): тикающий
-        // таймер живой на экране, останавливается вместе с игрой.
-        const startedAt = Date.now();
-        trainingGameInterval = setInterval(() => {
-            document.getElementById('memory-timer').textContent = fmtGameTime(Date.now() - startedAt);
-        }, 100);
-        function createCards() { cards = [...selectedImages, ...selectedImages].map((img, i) => ({ id: i, img, flipped: false, matched: false })).sort(() => Math.random() - 0.5); }
-        function render() {
-            gameGrid.innerHTML = '';
-            cards.forEach(card => {
-                const el = document.createElement('div');
-                el.className = `card${card.flipped || card.matched ? ' flipped' : ''}${card.matched ? ' matched' : ''}`;
-                el.dataset.id = card.id;
-                const back = document.createElement('div'); back.className = 'card-back'; back.innerHTML = '<span style="font-size:18px;color:#888">?</span>'; el.appendChild(back);
-                const img = document.createElement('img'); img.src = `pics/${card.img}`; img.alt = ''; img.draggable = false;
-                img.onerror = () => { img.src = 'image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ddd" width="100" height="100"/></svg>'; };
-                el.appendChild(img); el.addEventListener('click', () => flip(card.id)); gameGrid.appendChild(el);
-            });
-        }
-        function flip(id) {
-            if (!canFlip) return;
-            const card = cards.find(c => c.id === id);
-            if (flipped.length === 2 || card.flipped || card.matched) return;
-            card.flipped = true; flipped.push(card); render();
-            if (flipped.length === 2) {
-                moves++; canFlip = false;
-                setTimeout(() => {
-                    if (flipped[0].img === flipped[1].img) {
-                        flipped.forEach(c => { c.matched = true; c.flipped = false; }); matchedPairs++;
-                        if (matchedPairs === 8) { clearInterval(trainingGameInterval); endGame(Date.now() - startedAt); }
-                    } else { flipped.forEach(c => c.flipped = false); }
-                    flipped = []; canFlip = true; render();
-                }, 400);
-            }
-        }
-        function endGame(elapsedMs) {
-            const { best, isNew } = updateGameRecord('memory', 'bestTimeMs', elapsedMs, false);
-            container.innerHTML = `<div class="training-result"><div class="training-result-title">Результат</div><div class="training-result-message">Все 8 пар найдены за ${fmtGameTime(elapsedMs)}</div>${gameRecordBadgeHtml(`Рекорд: ${fmtGameTime(best)}`, isNew)}<div class="training-result-buttons"><button class="training-btn primary" id="retry-memory">Ещё раз</button><button class="training-btn secondary" id="menu-memory">В меню</button></div><button class="training-back-btn" id="back-memory">← Назад</button></div>`;
-            document.getElementById('retry-memory').onclick = () => renderMemoryGame(container);
-            document.getElementById('menu-memory').onclick = () => initTrainingMenu();
-            document.getElementById('back-memory').onclick = () => initTrainingMenu();
-        }
-        createCards(); render();
-        document.getElementById('training-back').onclick = () => initTrainingMenu();
-    }
-
     function renderWordsGame(container) {
         const allWords = ["яблоко", "машина", "дом", "книга", "ручка", "солнце", "вода", "дерево", "окно", "стул", "стол", "кошка", "собака", "цветок", "птица", "небо", "облако", "лес", "озеро", "река", "камень", "песок", "море", "снег", "дождь", "ветер", "луна", "звезда", "свет", "тень", "путь", "дверь", "замок", "ключ", "часы", "телефон", "ноутбук", "клавиатура", "мышь", "экран", "зеркало", "картина", "стена", "крыша", "крыло", "хвост", "лапа", "нос", "глаз", "рот", "ухо", "волос", "кожа", "платье", "рубашка", "ботинок", "сапог", "шляпа", "очки", "сумка", "портфель", "карандаш", "тетрадь", "доска", "мел", "сцена", "актер", "роль", "театр", "музыка", "песня", "танец", "праздник", "рождение", "день", "ночь", "сон", "мысль", "чувство", "ум", "сердце", "рука", "нога", "голова", "тело", "жизнь", "смерть", "время", "история", "мир", "война", "дружба", "любовь", "ненависть", "радость", "печаль", "страх", "надежда", "вера"];
         const WORDS_COUNT = 10; // «10 слов» — юзер указал, что должно быть именно 10, а не 8
         let targetWords = [], entered = [], memorizeTime = 15, guessTime = 45, phase = 'memorize';
-        container.innerHTML = `<div class="game-timer" id="words-timer">${memorizeTime}</div><div id="words-display" style="margin:15px 0;font-size:16px"></div><div id="words-input-area" style="display:none"><input type="text" class="game-input" id="words-input" placeholder="Введи слово и нажми Enter" style="width:200px;margin:10px auto"><div class="word-placeholders" id="words-placeholders"></div></div><button class="training-back-btn" id="training-back">← Назад</button>`;
+        container.innerHTML = `<div class="game-timer" id="words-timer">${memorizeTime}</div><div id="words-display" style="margin:15px 0;font-size:16px"></div><div id="words-input-area" style="display:none"><input type="text" class="game-input" id="words-input" enterkeyhint="done" autocomplete="off" placeholder="Введи слово и нажми Enter" style="width:200px;margin:10px auto"><div class="word-placeholders" id="words-placeholders"></div></div><button class="training-back-btn" id="training-back">← Назад</button>`;
         function getRandomWords(n) { return [...allWords].sort(() => Math.random() - 0.5).slice(0, n); }
         function setupPlaceholders() {
             const c = document.getElementById('words-placeholders'); c.innerHTML = '';
@@ -3212,8 +3154,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('menu-words').onclick = () => initTrainingMenu();
             document.getElementById('back-words').onclick = () => initTrainingMenu();
         }
-        document.getElementById('words-input')?.addEventListener('keypress', (e) => {
+        document.getElementById('words-input')?.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && phase === 'guess') {
+                e.preventDefault();
                 const word = e.target.value.trim().toLowerCase(); e.target.value = '';
                 if (word && !entered.includes(word)) {
                     entered.push(word);
@@ -3395,14 +3338,77 @@ document.addEventListener('DOMContentLoaded', () => {
     // как крестиком (данные уже сохранены по input выше, закрытие ничего дополнительно не пишет).
     if (dayEventInput) dayEventInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDayEventModal(); } });
 
+    // «Задача дня» — до DAY_TASKS_MAX штук на дату (юзер попросил: после добавления одной,
+    // предложить добавить ещё, до трёх). dashState.dayTasks[date] хранится массивом [{text,done}];
+    // старый формат (один объект {text,done} без массива, из версий до этой правки) — читаем через
+    // getDayTasks, которая молча оборачивает его в массив из одного элемента, ничего не мигрируя
+    // на диске явно (при следующем изменении само перезапишется уже массивом).
+    const DAY_TASKS_MAX = 3;
+    function getDayTasks(dateKey) {
+        const raw = (dashState.dayTasks || {})[dateKey];
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw;
+        return raw.text ? [raw] : [];
+    }
+    function setDayTasks(dateKey, arr) {
+        if (!dashState.dayTasks) dashState.dayTasks = {};
+        if (arr.length) dashState.dayTasks[dateKey] = arr;
+        else delete dashState.dayTasks[dateKey];
+    }
+
     const dayTaskModal = document.getElementById('day-task-modal');
     const dayTaskInput = document.getElementById('day-task-input');
+    const dayTaskListEl = document.getElementById('day-task-list');
+    function renderDayTaskModalList() {
+        if (!dayTaskListEl) return;
+        const tasks = getDayTasks(dayModalTargetDate);
+        dayTaskListEl.innerHTML = tasks.map((t, i) => `
+            <div class="cal-item">
+                <span class="day-task-list-text${t.done ? ' done' : ''}" data-idx="${i}">${escAttr(t.text)}</span>
+                <button type="button" class="cal-item-del" data-idx="${i}" aria-label="Удалить">✕</button>
+            </div>`).join('');
+        dayTaskListEl.querySelectorAll('.day-task-list-text').forEach(el => el.addEventListener('click', () => {
+            const arr = getDayTasks(dayModalTargetDate);
+            const idx = +el.dataset.idx;
+            arr[idx].done = !arr[idx].done;
+            setDayTasks(dayModalTargetDate, arr);
+            saveProgress();
+            renderDayTaskModalList();
+            if (onDayFieldsChanged) onDayFieldsChanged();
+        }));
+        dayTaskListEl.querySelectorAll('.cal-item-del').forEach(el => el.addEventListener('click', () => {
+            const arr = getDayTasks(dayModalTargetDate);
+            arr.splice(+el.dataset.idx, 1);
+            setDayTasks(dayModalTargetDate, arr);
+            saveProgress();
+            renderDayTaskModalList();
+            if (onDayFieldsChanged) onDayFieldsChanged();
+        }));
+        const atMax = tasks.length >= DAY_TASKS_MAX;
+        dayTaskInput.style.display = atMax ? 'none' : '';
+        document.getElementById('day-task-add-btn').style.display = atMax ? 'none' : '';
+        dayTaskInput.placeholder = tasks.length ? 'ещё одна задача' : 'главная задача на день';
+    }
+    function addDayTask() {
+        const text = dayTaskInput.value.trim();
+        if (!text) return;
+        const arr = getDayTasks(dayModalTargetDate);
+        if (arr.length >= DAY_TASKS_MAX) return;
+        arr.push({ text, done: false });
+        setDayTasks(dayModalTargetDate, arr);
+        saveProgress();
+        dayTaskInput.value = '';
+        renderDayTaskModalList();
+        if (onDayFieldsChanged) onDayFieldsChanged();
+        if (dayTaskInput.style.display !== 'none') dayTaskInput.focus(); // готов вводить следующую сразу
+    }
     function openDayTaskModal(dateKey) {
         if (!dayTaskModal || !dayTaskInput) return;
         dayModalTargetDate = dateKey || todayKey();
-        dayTaskInput.value = ((dashState.dayTasks || {})[dayModalTargetDate] || {}).text || '';
+        dayTaskInput.value = '';
+        renderDayTaskModalList();
         dayTaskModal.classList.add('active');
-        setTimeout(() => dayTaskInput.focus(), 50);
+        setTimeout(() => { if (dayTaskInput.style.display !== 'none') dayTaskInput.focus(); }, 50);
     }
     function closeDayTaskModal() {
         if (dayTaskModal) dayTaskModal.classList.remove('active');
@@ -3410,25 +3416,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const dayTaskCloseBtn = document.getElementById('day-task-close');
     if (dayTaskCloseBtn) dayTaskCloseBtn.addEventListener('click', closeDayTaskModal);
     if (dayTaskModal) dayTaskModal.addEventListener('click', (e) => { if (e.target === dayTaskModal) closeDayTaskModal(); });
-    if (dayTaskInput) dayTaskInput.addEventListener('input', () => {
-        if (!dashState.dayTasks) dashState.dayTasks = {};
-        const text = dayTaskInput.value.trim();
-        const prev = dashState.dayTasks[dayModalTargetDate];
-        if (text) dashState.dayTasks[dayModalTargetDate] = { text, done: (prev && prev.done) || false };
-        else delete dashState.dayTasks[dayModalTargetDate];
-        saveProgress();
-        if (onDayFieldsChanged) onDayFieldsChanged();
-    });
-    if (dayTaskInput) dayTaskInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); closeDayTaskModal(); } });
+    const dayTaskAddBtn = document.getElementById('day-task-add-btn');
+    if (dayTaskAddBtn) dayTaskAddBtn.addEventListener('click', addDayTask);
+    if (dayTaskInput) dayTaskInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addDayTask(); } });
 
-    // Рендерит «Событие дня» (текст) и «Задача дня» (текст + чекбокс) для конкретного dateKey —
-    // вызывается из Дня и normal-mode, и Pro mode (см. renderTaskDayView/renderPsychoDay). onChange
-    // регистрируется в onDayFieldsChanged, чтобы автосохранение из модалок обновляло именно этот блок.
+    // Рендерит «Событие дня» (текст) и «Задача дня» (до 3 штук, текст + чекбокс) для конкретного
+    // dateKey — вызывается из Дня и normal-mode, и Pro mode (см. renderTaskDayView/renderPsychoDay).
+    // onChange регистрируется в onDayFieldsChanged, чтобы автосохранение из модалок обновляло именно
+    // этот блок.
     function renderDayEventAndTask(container, dateKey, onChange) {
         if (!container) return;
         onDayFieldsChanged = onChange;
         const eventText = (dashState.dayEvents || {})[dateKey] || '';
-        const task = (dashState.dayTasks || {})[dateKey] || null;
+        const tasks = getDayTasks(dateKey);
+        const tasksHtml = tasks.map((t, i) => `<span class="day-task-inline${t.done ? ' done' : ''}" data-idx="${i}">${t.text}</span>`).join('');
         container.innerHTML = `
             <div class="day-field-row">
                 <button type="button" class="day-event-btn" id="open-day-event-btn">Событие дня</button>
@@ -3436,17 +3437,18 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="day-field-row">
                 <button type="button" class="day-event-btn" id="open-day-task-btn">Задача дня</button>
-                ${task ? `<span class="day-task-inline${task.done ? ' done' : ''}" id="day-task-toggle">${task.text}</span>` : ''}
+                ${tasksHtml}
             </div>`;
         document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
         document.getElementById('open-day-task-btn').addEventListener('click', () => openDayTaskModal(dateKey));
-        const taskToggle = document.getElementById('day-task-toggle');
-        if (taskToggle) taskToggle.addEventListener('click', () => {
-            if (!dashState.dayTasks || !dashState.dayTasks[dateKey]) return;
-            dashState.dayTasks[dateKey].done = !dashState.dayTasks[dateKey].done;
+        container.querySelectorAll('.day-task-inline').forEach(el => el.addEventListener('click', () => {
+            const arr = getDayTasks(dateKey);
+            const idx = +el.dataset.idx;
+            arr[idx].done = !arr[idx].done;
+            setDayTasks(dateKey, arr);
             saveProgress();
             renderDayEventAndTask(container, dateKey, onChange);
-        });
+        }));
     }
 
     // === ТУМБЛЕР PRO MODE (бывший psycho mode) — под замком подписки, см. HANDOFF.md §15 ===

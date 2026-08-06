@@ -34,7 +34,6 @@ interface InvoicePayload {
   user_id: string;
   plan: 'personal' | 'family';
   family_size: number | null;
-  discount_applied?: boolean;
 }
 
 interface TelegramUpdate {
@@ -154,10 +153,6 @@ Deno.serve(async (req) => {
 
       // Тот же charge уже обработан (повторная доставка вебхука Telegram) — не задваиваем.
       if (existing && existing.telegram_charge_id === chargeId) return ok();
-
-      // discount_applied уже отражён в фактически списанной сумме Stars (см. create-invoice) —
-      // здесь просто логируем для аудита, отдельно в subscriptions не храним.
-      if (payload.discount_applied) console.log(`discount applied for user ${payload.user_id}, charge ${chargeId}`);
 
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       await admin.from('subscriptions').upsert({

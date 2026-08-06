@@ -2,10 +2,10 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=32">
+    <link rel="stylesheet" href="habbittracker.css?v=33">
 </head>
 <body>
 
@@ -228,7 +228,7 @@
                         <div class="promode-preview-row"><span>минут медитировал</span><b>15 / 15 мин</b></div>
                         <div class="promode-preview-row"><span>сигарет скурил</span><b>0 / 0 шт</b></div>
                     </div>
-                    <p class="promode-desc">Числовые показатели дня вместо списка привычек — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.</p>
+                    <p class="promode-desc">Числовые показатели дня вместо списка задач — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.</p>
                 </div>
                 <div class="habit-settings-footer promode-plans">
                     <button class="settings-btn save" id="promode-buy-personal-btn" type="button">Купить Personal — 250 Stars/мес</button>
@@ -258,7 +258,11 @@
         <div class="habit-settings-content">
             <div class="habit-settings-header"><h3>Задача дня</h3><button class="habit-settings-close" id="day-task-close">✕</button></div>
             <div class="habit-settings-body">
-                <input type="text" id="day-task-input" enterkeyhint="done" class="formula-input" maxlength="200" placeholder="одна главная задача на день">
+                <div id="day-task-list" class="cal-day-list"></div>
+                <div class="cal-manual-row">
+                    <input type="text" id="day-task-input" enterkeyhint="done" class="formula-input" maxlength="200" placeholder="главная задача на день">
+                    <button type="button" class="metric-add" id="day-task-add-btn" aria-label="Добавить">＋</button>
+                </div>
             </div>
         </div>
     </div>
@@ -284,13 +288,13 @@
     <!-- МОДАЛКА: НАСТРОЙКИ ПРИВЫЧКИ/ЗАДАЧИ (создание и редактирование, см. openNewHabitModal/openHabitSettings) -->
     <div id="habit-settings-modal" class="habit-settings-modal">
         <div class="habit-settings-content">
-            <div class="habit-settings-header"><h3 id="habit-settings-title">Привычка</h3><button class="habit-settings-close" id="habit-settings-close">✕</button></div>
+            <div class="habit-settings-header"><h3 id="habit-settings-title">Задача</h3><button class="habit-settings-close" id="habit-settings-close">✕</button></div>
             <div class="habit-settings-body">
                 <div class="dm-toggle" id="habit-type-toggle">
                     <button type="button" class="dm-toggle-btn active" data-type="regular">Регулярная</button>
                     <button type="button" class="dm-toggle-btn" data-type="oneTime">Разовая</button>
                 </div>
-                <div class="setting-field"><label class="setting-label">Название</label><input type="text" id="setting-name-input" class="formula-input" maxlength="40" placeholder="Название привычки"></div>
+                <div class="setting-field"><label class="setting-label">Название</label><input type="text" id="setting-name-input" class="formula-input" maxlength="40" placeholder="Название задачи"></div>
                 <div class="setting-field" id="setting-date-field" style="display:none"><label class="setting-label">Дата</label><button type="button" class="setting-date-btn" id="setting-date-btn"></button></div>
                 <div class="setting-field"><label class="setting-label">Я сделаю это после того, как</label><input type="text" id="setting-trigger-input" class="formula-input" placeholder="например, выпью кофе"></div>
                 <div class="setting-reminder"><div class="toggle-wrapper"><input type="checkbox" id="setting-reminder-toggle" class="toggle-checkbox"><label for="setting-reminder-toggle" class="toggle-label">Напомнить в:</label></div><input type="time" id="setting-time-input" class="time-input" disabled></div>
@@ -381,7 +385,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=32"></script>
-    <script type="module" src="auth.js?v=32"></script>
+    <script src="habbittracker.js?v=33"></script>
+    <script type="module" src="auth.js?v=33"></script>
 </body>
 </html>
