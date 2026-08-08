@@ -372,11 +372,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Дефолтный набор для новых юзеров. Дальше живой список — в dashState.metrics (юзер сам добавляет/удаляет).
     // Юзер попросил по умолчанию только 1 показатель, не 7 — остальные (км пробежал/сон/деньги/
     // медитация/страницы/сигареты/кофе) убраны из дефолта, юзер добавляет их сам через «+ добавить
-    // показатель». Единственный оставшийся — «Поблагодари судьбу за Live Life трекер», 5 раз в день.
+    // показатель». Единственный оставшийся — «Поблагодарить <имя пригласившего> за Live Life
+    // трекер», 5 раз в день; имя подставляется в cloneMetrics(), сам DEFAULT_METRICS хранит
+    // болванку с {name} — заготовку под window.referrerName.
     const DEFAULT_METRICS = [
-        { id: 'gratitude', name: 'Поблагодари судьбу за Live Life трекер', unit: 'раз', type: 'goal', target: 5 }
+        { id: 'gratitude', name: 'Поблагодарить {name} за Live Life трекер', unit: 'раз', type: 'goal', target: 5 }
     ];
-    const cloneMetrics = () => DEFAULT_METRICS.map(m => ({ ...m }));
+    // window.referrerName — имя того, кто позвал (по реферальной ссылке), ставит auth.js
+    // (telegramSignIn → get_referrer_name, db/phase18_…sql) ДО вызова createDefaultState. Если
+    // юзер пришёл не по ссылке (органическая установка) — подставляем «судьбу» (как и было
+    // изначально, до того как юзер уточнил, что имел в виду именно пригласившего).
+    const cloneMetrics = () => DEFAULT_METRICS.map(m => ({
+        ...m,
+        name: m.name.includes('{name}') ? m.name.replace('{name}', window.referrerName || 'судьбу') : m.name
+    }));
     const metricTarget = m => {
         const t = dashState.metricTargets && dashState.metricTargets[m.id];
         return (t === undefined || t === null) ? m.target : t;

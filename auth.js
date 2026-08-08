@@ -102,6 +102,15 @@ async function telegramSignIn(initData) {
     // а у service-role его нет. Тихо игнорируем ошибку (напр. "это свой же ID") — не критично.
     if (data.start_param) {
       try { await sb.rpc('send_invite', { target_code: data.start_param }); } catch (e) {}
+      // Имя пригласившего — для дефолтного показателя Pro mode «Поблагодарить <имя> за Live Life
+      // трекер» (см. createDefaultState/DEFAULT_METRICS в habbittracker.js). get_referrer_name —
+      // SECURITY DEFINER (db/phase18_…sql): свежая связь ещё 'pending', обычные RLS-политики
+      // stats/profiles новому юзеру её читать не дадут. window.referrerName читается ТОЛЬКО в
+      // момент создания дефолтного состояния — до этой строки его нет смысла ставить раньше.
+      try {
+        const { data: nameData } = await sb.rpc('get_referrer_name', { p_code: data.start_param });
+        if (nameData) window.referrerName = nameData;
+      } catch (e) {}
     }
     return { ok: true, subscription: data.subscription };
   } catch (e) {
