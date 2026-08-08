@@ -614,13 +614,13 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (viewName === 'food') renderFood();
         else if (viewName === 'morning' || viewName === 'evening') {
             initCheckins(viewName);
-            // График «настроение и сон» переехал сюда из вкладки «Месяц» (см. HANDOFF.md §15) —
-            // всегда за ТЕКУЩИЙ календарный месяц (тут навигации по месяцам нет, в отличие от «Задач»).
+            // Графики «настроение/сон» переехали сюда из вкладки «Месяц» (см. HANDOFF.md §15).
+            // Каждый заход в «Чек-ап» начинает с ТЕКУЩЕГО календарного месяца (checkupChartCursor
+            // сбрасывается в null → renderCheckupCharts подставит today) — как и monthCursor у
+            // «Задач», листание месяцами внутри вкладки не запоминается между заходами.
             if (viewName === 'morning') {
-                const now = new Date();
-                const days = daysInMonth(now.getFullYear(), now.getMonth());
-                drawMonthMoodSleep(now.getFullYear(), now.getMonth(), days);
-                drawSleepHoursChart(now.getFullYear(), now.getMonth(), days);
+                checkupChartCursor = null;
+                renderCheckupCharts();
             }
         }
         updateCheckinButtonPulse();
@@ -1217,26 +1217,107 @@ document.addEventListener('DOMContentLoaded', () => {
         wirePsychoToggle(root);
     }
 
+    // === НАВИГАЦИЯ ПО МЕСЯЦАМ ДЛЯ ГРАФИКОВ ЧЕК-АПА (Часы сна / Настроение-сон-энергия-здоровье) ===
+    // Юзер попросил: приближенные дни (~10 на экран, скролл влево-вправо внутри месяца) + месяц и
+    // календарь справа от заголовка каждого графика, как у «Задач» (openMonthPicker). Оба графика
+    // всегда показывают ОДИН и тот же месяц (общий checkupChartCursor) — было бы странно, если бы
+    // они разъезжались по разным месяцам в одной и той же вкладке.
+    let checkupChartCursor = null; // {y,m}; null → renderCheckupCharts подставит текущий месяц
+
+    // Та же кнопка-календарь (CALENDAR_ICON) и стрелки, что у monthHeadHtml/dayNavHeaderHtml —
+    // единый визуальный язык навигации по всему приложению. idPrefix различает элементы двух
+    // графиков (mood-chart/sleep-chart), title — текст перед навигацией (сам заголовок графика).
+    function chartHeaderHtml(title, idPrefix) {
+        return `<div class="month-chart-title">${title}</div>
+            <div class="chart-month-nav">
+                <button class="day-nav-arrow" id="${idPrefix}-prev" type="button" aria-label="Предыдущий месяц">←</button>
+                <span class="checkin-date-label" id="${idPrefix}-label"></span>
+                <button class="day-nav-arrow" id="${idPrefix}-next" type="button" aria-label="Следующий месяц">→</button>
+                <button class="history-btn" id="${idPrefix}-cal" type="button" title="Открыть выбор месяца">${CALENDAR_ICON}</button>
+            </div>`;
+    }
+    function wireChartNav(idPrefix) {
+        const prevBtn = document.getElementById(`${idPrefix}-prev`);
+        const nextBtn = document.getElementById(`${idPrefix}-next`);
+        const calBtn = document.getElementById(`${idPrefix}-cal`);
+        if (prevBtn) prevBtn.onclick = () => shiftCheckupChartMonth(-1);
+        if (nextBtn) nextBtn.onclick = () => shiftCheckupChartMonth(1);
+        if (calBtn) calBtn.onclick = () => openMonthPicker({
+            value: checkupChartCursor,
+            onPick: (py, pm) => { checkupChartCursor = { y: py, m: pm }; renderCheckupCharts(); }
+        });
+    }
+    function shiftCheckupChartMonth(delta) {
+        let { y, m } = checkupChartCursor;
+        m += delta;
+        if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+        checkupChartCursor = { y, m };
+        renderCheckupCharts();
+    }
+    function renderCheckupCharts() {
+        const now = new Date();
+        if (!checkupChartCursor) checkupChartCursor = { y: now.getFullYear(), m: now.getMonth() };
+        const { y, m } = checkupChartCursor;
+        const days = daysInMonth(y, m);
+        const moodHeader = document.getElementById('mood-chart-header');
+        const sleepHeader = document.getElementById('sleep-chart-header');
+        if (moodHeader) moodHeader.innerHTML = chartHeaderHtml('Настроение, сон, энергия и здоровье', 'mood-chart');
+        if (sleepHeader) sleepHeader.innerHTML = chartHeaderHtml('Часы сна', 'sleep-chart');
+        ['mood-chart', 'sleep-chart'].forEach(idPrefix => {
+            const label = document.getElementById(`${idPrefix}-label`);
+            if (label) label.textContent = `${MONTH_NAMES[m]} ${y}`;
+            wireChartNav(idPrefix);
+        });
+        drawMonthMoodSleep(y, m, days);
+        drawSleepHoursChart(y, m, days);
+    }
+
+    // Общая раскладка «канвас на ~10 дней/экран, скроллится внутри .chart-scroll» для обоих
+    // графиков ниже. Ширина колонки-дня = ширина видимой области скролл-обёртки / 10 (юзер: «чтобы
+    // влезало 10 дней на экран»), сам канвас растягивается на ВСЕ дни месяца — что не влезло,
+    // уезжает за край и доступно свайпом. dayW возвращается вызывающей стороне для отрисовки баров.
+    function layoutMonthChart(canvas, scrollWrap, days, extraBottomForLabels) {
+        const viewportW = scrollWrap.clientWidth;
+        if (viewportW === 0) return null; // ещё не виден (вкладка не отрендерилась) — повторим позже
+        const dpr = window.devicePixelRatio || 1;
+        const dayW = Math.max(28, viewportW / 10);
+        const pad = { t: 8, r: 10, b: 16 + extraBottomForLabels, l: 28 };
+        const w = pad.l + pad.r + days * dayW, h = 150;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        canvas.width = w * dpr; canvas.height = h * dpr;
+        const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, w, h);
+        return { ctx, w, h, pad, dayW };
+    }
+
+    // Подписи под графиком: день недели + число месяца на каждый день — юзер попросил явно
+    // подписывать ось X, а не полагаться на одну лишь сетку значений.
+    function drawDayLabelsXAxis(ctx, y, m, days, xAt, chartBottomY) {
+        ctx.textAlign = 'center'; ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif';
+        for (let d = 1; d <= days; d++) {
+            const x = xAt(d);
+            ctx.fillText(WD_SHORT[new Date(y, m, d).getDay()], x, chartBottomY + 11);
+            ctx.fillText(String(d), x, chartBottomY + 22);
+        }
+    }
+
     // Линия настроения и качества сна за месяц (данные из утренних чек-апов)
     function drawMonthMoodSleep(y, m, days) {
         const canvas = document.getElementById('month-ms-chart');
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width === 0) { setTimeout(() => drawMonthMoodSleep(y, m, days), 60); return; } // ещё не виден
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
-        const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
-        const w = rect.width, h = rect.height;
-        const pad = { t: 8, r: 10, b: 16, l: 22 };
-        const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
-        ctx.clearRect(0, 0, w, h);
+        const scrollWrap = document.getElementById('mood-chart-scroll');
+        if (!canvas || !scrollWrap) return;
+        const layout = layoutMonthChart(canvas, scrollWrap, days, 20);
+        if (!layout) { setTimeout(() => drawMonthMoodSleep(y, m, days), 60); return; }
+        const { ctx, w, h, pad, dayW } = layout;
+        const ih = h - pad.t - pad.b;
 
         // сетка 0 / 5 / 10
         ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1; ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
         [0, 5, 10].forEach(v => { const yy = pad.t + ih - (v / 10) * ih; ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke(); ctx.fillText(v, pad.l - 4, yy + 3); });
 
         const hist = dashState.checkinHistory || {};
-        const xAt = d => pad.l + (days > 1 ? (d - 1) / (days - 1) * iw : iw / 2);
+        const xAt = d => pad.l + (d - 0.5) * dayW;
         const yAt = v => pad.t + ih - (v / 10) * ih;
         const valFor = (d, key) => {
             const local = hist[fdt(y, m, d)]?.morning?.[key];
@@ -1257,6 +1338,7 @@ document.addEventListener('DOMContentLoaded', () => {
         series('sleepQuality', '#999', [4, 3]);
         series('energy', '#1e40af', []);
         series('health', '#60a5fa', [2, 2]);
+        drawDayLabelsXAxis(ctx, y, m, days, xAt, pad.t + ih);
     }
 
     // Часы сна отдельным графиком: Y — время суток (0–24), X — дни месяца; закрашенный отрезок —
@@ -1265,16 +1347,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // снизу (от 0) — так «через полночь» не выглядит как перенос на соседний день.
     function drawSleepHoursChart(y, m, days) {
         const canvas = document.getElementById('month-sleep-chart');
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width === 0) { setTimeout(() => drawSleepHoursChart(y, m, days), 60); return; }
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
-        const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
-        const w = rect.width, h = rect.height;
-        const pad = { t: 8, r: 10, b: 16, l: 26 };
-        const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
-        ctx.clearRect(0, 0, w, h);
+        const scrollWrap = document.getElementById('sleep-chart-scroll');
+        if (!canvas || !scrollWrap) return;
+        const layout = layoutMonthChart(canvas, scrollWrap, days, 20);
+        if (!layout) { setTimeout(() => drawSleepHoursChart(y, m, days), 60); return; }
+        const { ctx, w, h, pad, dayW } = layout;
+        const ih = h - pad.t - pad.b;
 
         // сетка по часам суток
         ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1; ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
@@ -1285,10 +1363,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const hist = dashState.checkinHistory || {};
-        const xAt = d => pad.l + (days > 1 ? (d - 1) / (days - 1) * iw : iw / 2);
+        const xAt = d => pad.l + (d - 0.5) * dayW;
         const yAt = hr => pad.t + ih - (hr / 24) * ih;
         const parseHM = s => { if (!s) return null; const [hh, mm] = String(s).split(':').map(Number); return isNaN(hh) ? null : hh + (mm || 0) / 60; };
-        const barW = Math.max(3, (iw / days) * 0.55);
+        const barW = Math.max(4, dayW * 0.55);
         const drawSeg = (d, fromH, toH, color) => {
             const x = xAt(d) - barW / 2, y1 = yAt(fromH), y2 = yAt(toH);
             ctx.fillStyle = color;
@@ -1308,6 +1386,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const extra = parseFloat(rec.extraSleepHours);
             if (extra > 0) drawSeg(d, wakeH, Math.min(24, wakeH + extra), '#93c5fd');
         }
+        drawDayLabelsXAxis(ctx, y, m, days, xAt, pad.t + ih);
     }
 
     // =========================================

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=41">
+    <link rel="stylesheet" href="habbittracker.css?v=42">
 </head>
 <body>
 
@@ -119,10 +119,14 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Переехало из вкладки «Месяц» (см. HANDOFF.md §15) — сразу за текущий месяц -->
+                        <!-- Переехало из вкладки «Месяц» (см. HANDOFF.md §15) — заголовок+навигация по месяцам
+                             заполняются в JS (см. renderCheckupCharts/chartHeaderHtml в habbittracker.js), тут
+                             только контейнер под них. Канвас — в скролл-обёртке: юзер попросил «приближенные»
+                             дни (~10 на экран) со скроллом влево-вправо внутри месяца вместо сжатия всех дней
+                             в одну ширину экрана (см. HANDOFF.md §49). -->
                         <div class="month-chart-block">
-                            <div class="month-chart-title">Настроение, сон, энергия и здоровье</div>
-                            <canvas id="month-ms-chart" width="600" height="150"></canvas>
+                            <div class="checkin-header-row" id="mood-chart-header"></div>
+                            <div class="chart-scroll" id="mood-chart-scroll"><canvas id="month-ms-chart"></canvas></div>
                             <div class="month-legend">
                                 <span class="lg lg-mood">● Настроение</span>
                                 <span class="lg lg-sleep">● Качество сна</span>
@@ -132,8 +136,8 @@
                         </div>
                         <!-- Часы сна: закрашенный промежуток «лёг–встал» по дням месяца -->
                         <div class="month-chart-block">
-                            <div class="month-chart-title">Часы сна</div>
-                            <canvas id="month-sleep-chart" width="600" height="150"></canvas>
+                            <div class="checkin-header-row" id="sleep-chart-header"></div>
+                            <div class="chart-scroll" id="sleep-chart-scroll"><canvas id="month-sleep-chart"></canvas></div>
                             <div class="month-legend">
                                 <span class="lg lg-sleep-main">● Сон (лёг–встал)</span>
                                 <span class="lg lg-sleep-extra">● Добавленные часы</span>
@@ -395,7 +399,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=41"></script>
+    <script src="habbittracker.js?v=42"></script>
     <script type="module" src="auth.js?v=38"></script>
 </body>
 </html>
