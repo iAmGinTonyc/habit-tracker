@@ -842,8 +842,12 @@ canvas { width: 100%; height: 150px; }
    .prof-name-msg { font-size: 12px; color: #888; min-height: 15px; margin: 6px 0 2px; }
    .auth-logout { width: 100%; height: 38px; border: none; background: none; color: #999; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 6px; }
    .auth-logout:hover { color: #111; text-decoration: underline; }
-   /* Подписка */
-   .sub-section { margin: 18px 0 6px; border-top: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1; padding: 4px 0 16px; }
+   /* Подписка — юзер попросил убрать лишний пустой отступ и «лишнюю полоску» до и после этого
+      блока: раньше .sub-section сама рисовала border-top/border-bottom, из-за чего у границы с
+      соседней .fam-section (у той свой border-top) получалась двойная линия с зазором между
+      ними. Теперь у .sub-section совсем нет своих рамок — единственная разделительная линия
+      профиля перед «Семьёй» рисуется border-top у .fam-section.fam-section-tight ниже. */
+   .sub-section { margin: 8px 0; }
    .sub-plans { display: flex; gap: 8px; margin-top: 10px; }
    .sub-plan-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border: 1px solid #e0e0e0; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
    .sub-plan-btn:hover { border-color: #bbb; }
