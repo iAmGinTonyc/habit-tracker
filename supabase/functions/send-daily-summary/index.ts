@@ -54,6 +54,28 @@ function escHtml(s: unknown): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// «4:00-11:30 (+2 часа) Общее: 9:30 ч» — юзер попросил одной строкой вместо трёх (лёг/встал/
+// урывками). Часы/минуты — те же вычисления, что у drawSleepHoursChart в habbittracker.js (учёт
+// сна через полночь: wakeH<=sleepH → сон длился до 24:00 следующего дня).
+function parseHM(s?: string): number | null {
+  if (!s) return null;
+  const [hh, mm] = s.split(':').map(Number);
+  return isNaN(hh) ? null : hh + (mm || 0) / 60;
+}
+const stripLeadingZero = (t: string) => t.replace(/^0(\d:)/, '$1'); // "04:00" → "4:00"
+function fmtDurationHM(hoursFloat: number): string {
+  const totalMin = Math.round(hoursFloat * 60);
+  return `${Math.floor(totalMin / 60)}:${String(totalMin % 60).padStart(2, '0')}`;
+}
+function pluralHours(n: number): string {
+  if (!Number.isInteger(n)) return 'часа'; // дробные (1.5, 2.5…) — общепринято родительный ед.ч.
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 'часов';
+  if (mod10 === 1) return 'час';
+  if (mod10 >= 2 && mod10 <= 4) return 'часа';
+  return 'часов';
+}
+
 // Собирает читаемый текст сводки из СЕГОДНЯШНЕГО среза dashState. Возвращает null, если сегодня
 // вообще ничего не трогал — пустой отчёт слать не имеет смысла (см. вызов ниже). Заголовки блоков
 // — жирным (HTML <b>, см. parse_mode в sendMessage ниже) + эмодзи, юзер попросил визуально
@@ -92,14 +114,27 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
     .filter(Boolean);
   if (metricLines.length) sections.push('<b>📊 Показатели:</b>\n' + metricLines.join('\n'));
 
-  // Чек-ап дня (dashState.checkinHistory[date].morning) — юзер попросил разбить построчно
-  // (раньше шло одной строкой через запятую).
+  // Чек-ап дня (dashState.checkinHistory[date].morning) — построчно, сон (лёг/встал/урывками)
+  // юзер попросил свести в одну строку вида «4:00-11:30 (+2 часа) Общее: 9:30 ч».
   const morning = ((state.checkinHistory || {})[todayKey] || {}).morning;
   if (morning) {
     const parts: string[] = [];
-    if (morning.sleepTime) parts.push(`лёг в ${escHtml(morning.sleepTime)}`);
-    if (morning.wakeTime) parts.push(`встал в ${escHtml(morning.wakeTime)}`);
-    if (morning.extraSleepHours) parts.push(`+${escHtml(morning.extraSleepHours)} ч сна урывками`);
+    const sleepH = parseHM(morning.sleepTime);
+    const wakeH = parseHM(morning.wakeTime);
+    const extra = parseFloat(morning.extraSleepHours) || 0;
+    if (sleepH != null && wakeH != null) {
+      const mainDur = wakeH <= sleepH ? (24 - sleepH) + wakeH : wakeH - sleepH; // сон через полночь
+      let line = `${stripLeadingZero(morning.sleepTime)}-${stripLeadingZero(morning.wakeTime)}`;
+      if (extra > 0) line += ` (+${escHtml(morning.extraSleepHours)} ${pluralHours(extra)})`;
+      line += ` Общее: ${fmtDurationHM(mainDur + extra)} ч`;
+      parts.push(line);
+    } else {
+      // Половина данных (только «лёг» или только «встал», без пары) — единую строку с диапазоном
+      // не собрать, показываем что есть по отдельности, как раньше.
+      if (morning.sleepTime) parts.push(`лёг в ${escHtml(morning.sleepTime)}`);
+      if (morning.wakeTime) parts.push(`встал в ${escHtml(morning.wakeTime)}`);
+      if (morning.extraSleepHours) parts.push(`+${escHtml(morning.extraSleepHours)} ч сна урывками`);
+    }
     if (morning.mood) parts.push(`настроение ${escHtml(morning.mood)}/10`);
     if (morning.sleepQuality) parts.push(`сон ${escHtml(morning.sleepQuality)}/10`);
     if (morning.energy) parts.push(`энергия ${escHtml(morning.energy)}/10`);
