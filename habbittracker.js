@@ -97,7 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
         "Сегодняшнее усилие — завтрашняя сила",
         "Никто не увидит тренировки — все увидят результат",
         "Спокойствие сильнее суеты",
-        "Просто продолжай"
+        "Просто продолжай",
+        "Поблагодари судьбу за Live Life трекер"
     ];
     if (introText) introText.textContent = phrases[Math.floor(Math.random() * phrases.length)];
 
@@ -370,14 +371,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // === PSYCHO MODE: ДЕФОЛТНЫЙ НАБОР МЕТРИК (дальше юзер сам добавляет/удаляет) ===
     // type: 'goal' (больше = лучше) | 'limit' (меньше = лучше)
     // Дефолтный набор для новых юзеров. Дальше живой список — в dashState.metrics (юзер сам добавляет/удаляет).
+    // Юзер попросил по умолчанию только 1 показатель, не 7 — остальные (сон/деньги/медитация/
+    // страницы/сигареты/кофе) убраны из дефолта, юзер добавляет их сам через «+ добавить показатель».
     const DEFAULT_METRICS = [
-        { id: 'run',      name: 'км пробежал',          unit: 'км',    type: 'goal',  target: 10,   step: 0.1 },
-        { id: 'sleep',    name: 'часов поспал',         unit: 'ч',     type: 'goal',  target: 8,    step: 0.5 },
-        { id: 'money',    name: 'денег заработал',      unit: '₽',     type: 'goal',  target: 3000 },
-        { id: 'meditate', name: 'минут медитировал',    unit: 'мин',   type: 'goal',  target: 15 },
-        { id: 'pages',    name: 'страниц прочитал',     unit: 'стр',   type: 'goal',  target: 30 },
-        { id: 'cigs',     name: 'сигарет скурил',       unit: 'шт',    type: 'limit', target: 0 },
-        { id: 'coffee',   name: 'кофе выпил',           unit: 'чашек', type: 'limit', target: 2 }
+        { id: 'run', name: 'км пробежал', unit: 'км', type: 'goal', target: 10, step: 0.1 }
     ];
     const cloneMetrics = () => DEFAULT_METRICS.map(m => ({ ...m }));
     const metricTarget = m => {
