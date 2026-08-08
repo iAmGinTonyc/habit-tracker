@@ -160,7 +160,7 @@
    .day-task-list-text.done::after { width: 100%; }
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
-   .task-day-list { margin-top: 6px; }
+   .task-day-list { margin-top: 6px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
    .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
    .task-day-text { font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
    .task-day-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -182,7 +182,9 @@
    .dash-view.active { display: block; opacity: 1; }
    .dash-subtitle { font-size: 14px; color: #999; margin-bottom: 6px; font-weight: 400; letter-spacing: 1px; text-align: center; }
    .timer-subtitle { text-align: center; font-size: 11px; color: #ccc; font-style: italic; margin-bottom: 20px; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
-   #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; }
+   /* max-height + overflow-y:auto — список внутри себя скроллится (лимит подняли до 30 задач,
+      см. HANDOFF.md), а не просто бесконечно растягивает всю страницу. */
+   #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
    
    /* Строка привычки */
    .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; }
@@ -383,19 +385,6 @@
     margin: 0 6px 0 0; /* Прижата к заголовку */
     white-space: nowrap;
     letter-spacing: 0.3px;
-}
-
-/* --- Режим просмотра истории (только чтение) --- */
-.checkin-form.history-mode, .food-form.history-mode {
-    opacity: 0.85;
-    pointer-events: none; /* Блокирует всё внутри */
-}
-
-/* Исключения: разрешаем кликать по кнопкам действий */
-.checkin-form.history-mode #back-to-today-btn {
-    pointer-events: auto !important;
-    opacity: 1;
-    cursor: pointer;
 }
 
 canvas { width: 100%; height: 150px; }

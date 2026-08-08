@@ -306,7 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { text: 'Читать 20 минут',             area: 'growth' },
         { text: 'Дневник благодарности',       area: 'emotion' }
     ];
-    const MAX_HABITS = 10;
+    const MAX_HABITS = 30;
 
     // === КАТЕГОРИИ ОНБОРДИНГА (экран выбора набора задач для нового юзера) ===
     // Каждая area — существующая сфера колеса жизни (см. LIFE_AREAS ниже), новых сфер не заводим.
@@ -1166,16 +1166,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // renderDayView(), на который теперь ничего не переключается). День всегда про СЕГОДНЯ, не про
     // выбранный monthCursor — навигация по месяцам тут не нужна.
     // Дата, которую сейчас смотрим в «Дне» Pro mode — по умолчанию сегодня, листается стрелками
-    // либо через календарь (см. dayNavHeaderHtml/wireDayNavHeader). Прошлые дни — только чтение
-    // (renderPsychoMetricsReadOnly), сегодня — живой ввод (renderPsychoMetrics). Уже внутри Pro mode
-    // (сама вкладка под замком подписки) — отдельного гейта не нужно, в отличие от календаря питания
-    // (тот доступен и без Pro mode, поэтому гейтится отдельно).
+    // либо через календарь (см. dayNavHeaderHtml/wireDayNavHeader). Юзер попросил возможность
+    // редактировать показатели и за прошлые дни, не только за сегодня — renderPsychoMetrics теперь
+    // всегда живой ввод, независимо от даты (раньше прошлые дни были read-only снимком, см.
+    // renderPsychoMetricsReadOnly в HANDOFF.md §38, функция удалена как более не нужная). Уже внутри
+    // Pro mode (сама вкладка под замком подписки) — отдельного гейта не нужно, в отличие от
+    // календаря питания (тот доступен и без Pro mode, поэтому гейтится отдельно).
     let currentPsychoDate = todayKey();
 
     function renderPsychoDay() {
         const root = document.getElementById('view-month');
         const dateKey = currentPsychoDate;
-        const isToday = dateKey === todayKey();
         // Только навигация по дню (стрелки + календарь) — это и была вся правка, которую просил
         // юзер («фильтрацию днями подредактировать»). «Событие дня»/«Задача дня» сюда НЕ добавляем —
         // это фичи normal-mode «Задачи» (см. renderTaskDayView), Pro mode их не касается. Сама
@@ -1186,31 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div id="psycho-list-tasks"></div>`;
         wirePsychoToggle(root);
         wireDayNavHeader('psycho-nav', dateKey, (newKey) => { currentPsychoDate = newKey; renderPsychoDay(); });
-        if (isToday) renderPsychoMetrics(document.getElementById('psycho-list-tasks'));
-        else renderPsychoMetricsReadOnly(document.getElementById('psycho-list-tasks'), dateKey);
-    }
-
-    // Читаемый снимок показателей за прошлый день (dashState.metricLog[date]) — без контролов
-    // добавления/переименования/удаления, которые есть только у СЕГОДНЯШНЕГО ввода (см. renderPsychoMetrics).
-    function renderPsychoMetricsReadOnly(container, date) {
-        if (!container) return;
-        const metrics = dashState.metrics || [];
-        if (!metrics.length) { container.innerHTML = '<div class="dash-habit-limit">Нет показателей</div>'; return; }
-        const rec = (dashState.metricLog || {})[date] || {};
-        container.innerHTML = metrics.map(m => {
-            const val = +rec[m.id] || 0;
-            const target = metricTarget(m);
-            const isLimit = m.type === 'limit';
-            const over = isLimit && val > target;
-            const pct = target > 0 ? Math.min(100, Math.round(val / target * 100)) : (val > 0 ? 100 : 0);
-            return `<div class="metric-row">
-                <div class="metric-top">
-                    <span class="metric-name-wrap"><span class="metric-name">${m.name}</span>${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
-                    <span class="metric-val ${over ? 'over' : ''}"><b>${fmtNum(val)}</b> / ${fmtNum(target)} ${m.unit || ''}</span>
-                </div>
-                <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
-            </div>`;
-        }).join('');
+        renderPsychoMetrics(document.getElementById('psycho-list-tasks'), dateKey);
     }
 
     function renderPsychoMonth(y, m) {
@@ -1399,9 +1376,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================
     //   PSYCHO MODE (числовые метрики)
     // =========================================
-    const metricValue = id => { const day = dashState.metricLog[todayKey()]; return day ? day[id] : undefined; };
-    function setMetricValue(id, val) {
-        const k = todayKey();
+    const metricValue = (id, dateKey = todayKey()) => { const day = dashState.metricLog[dateKey]; return day ? day[id] : undefined; };
+    function setMetricValue(id, val, dateKey = todayKey()) {
+        const k = dateKey;
         if (!dashState.metricLog[k]) dashState.metricLog[k] = {};
         const day = dashState.metricLog[k];
         if (val === false || val === 0 || val === undefined || val === null) {
@@ -1455,15 +1432,20 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.classList.add('active');
     }
 
-    // container — куда рендерить; при повторных внутренних вызовах (после каждого действия)
-    // параметр можно не передавать — используется последний запомненный контейнер. Так один и тот
-    // же рендер работает и из renderPsychoDay() (вкладка «Задачи», см. выше), и из старой (сейчас
-    // недостижимой без FEATURES.dayTab, но не удалённой — см. HANDOFF.md про откат фич-флагов)
-    // renderDayView(), без конфликта id между их разными контейнерами.
+    // container — куда рендерить; dateKey — какой день редактируем (dashState.metricLog[dateKey]).
+    // При повторных внутренних вызовах (после каждого действия) оба параметра можно не передавать —
+    // используются последний запомненный контейнер/дата. Так один и тот же рендер работает и из
+    // renderPsychoDay() (вкладка «Задачи», см. выше — юзер листает дни стрелками, каждый день
+    // редактируется независимо), и из старой (сейчас недостижимой без FEATURES.dayTab, но не
+    // удалённой — см. HANDOFF.md про откат фич-флагов) renderDayView(), без конфликта id между их
+    // разными контейнерами.
     let psychoMetricsList = null;
-    function renderPsychoMetrics(container) {
+    let psychoMetricsDate = todayKey();
+    function renderPsychoMetrics(container, dateKey) {
         if (container) psychoMetricsList = container;
+        if (dateKey) psychoMetricsDate = dateKey;
         const list = psychoMetricsList;
+        const dk = psychoMetricsDate;
         if (!list) return;
         list.innerHTML = '';
         const metrics = dashState.metrics || [];
@@ -1477,7 +1459,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('div');
             row.className = 'metric-row';
 
-            const val = +metricValue(m.id) || 0;
+            const val = +metricValue(m.id, dk) || 0;
             const target = metricTarget(m);
             const isLimit = m.type === 'limit';
             const over = isLimit && val > target;
@@ -1499,7 +1481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const add = () => {
                 const v = parseFloat(String(input.value).replace(',', '.'));
                 if (isNaN(v)) return;
-                setMetricValue(m.id, Math.max(0, val + v));
+                setMetricValue(m.id, Math.max(0, val + v), dk);
                 renderPsychoMetrics();
             };
             row.querySelector('.metric-add').addEventListener('click', add);
@@ -1540,7 +1522,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 gi.addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); else if (ev.key === 'Escape') renderPsychoMetrics(); });
             });
             const rb = row.querySelector('.metric-reset');
-            if (rb) rb.addEventListener('click', () => { setMetricValue(m.id, 0); renderPsychoMetrics(); });
+            if (rb) rb.addEventListener('click', () => { setMetricValue(m.id, 0, dk); renderPsychoMetrics(); });
             row.querySelector('.metric-del').addEventListener('click', () => {
                 confirmDialog(`Удалить показатель «${m.name}»?`, () => {
                     dashState.metrics = dashState.metrics.filter(x => x.id !== m.id);
@@ -2001,41 +1983,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="checkin-date-label" id="date-label-food"></span>
                 <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-food" title="История (Pro mode)">${historyIcon}</button>
             </div>
-            <div class="food-form${isHistory ? ' history-mode' : ''}" id="food-form">${cells}</div>
+            <div class="food-form" id="food-form">${cells}</div>
             ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-food-btn">← Вернуться к сегодня</button>' : `
             <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
             <div class="food-week" id="food-week"></div>`}`;
         updateDateLabel('food', isHistory ? viewDate : null);
 
+        // Юзер попросил редактировать питание и за прошлые дни, не только за сегодня — пишем в
+        // viewDate (совпадает с tKey, когда история не открыта), а не жёстко в tKey.
         function setMealField(mealId, field, value) {
-            if (!dashState.foodLog[tKey]) dashState.foodLog[tKey] = {};
-            if (!dashState.foodLog[tKey][mealId]) dashState.foodLog[tKey][mealId] = {};
-            dashState.foodLog[tKey][mealId][field] = value;
-            const r = dashState.foodLog[tKey][mealId];
-            if (!r.time && !r.text) delete dashState.foodLog[tKey][mealId];           // пустой приём — убрать
-            if (!Object.keys(dashState.foodLog[tKey]).length) delete dashState.foodLog[tKey]; // пустой день — убрать
+            if (!dashState.foodLog[viewDate]) dashState.foodLog[viewDate] = {};
+            if (!dashState.foodLog[viewDate][mealId]) dashState.foodLog[viewDate][mealId] = {};
+            dashState.foodLog[viewDate][mealId][field] = value;
+            const r = dashState.foodLog[viewDate][mealId];
+            if (!r.time && !r.text) delete dashState.foodLog[viewDate][mealId];           // пустой приём — убрать
+            if (!Object.keys(dashState.foodLog[viewDate]).length) delete dashState.foodLog[viewDate]; // пустой день — убрать
             saveProgress();
-            renderFoodWeek();
+            if (!isHistory) renderFoodWeek();
         }
 
         // автосохранение по вводу (перерисовываем только недельный список, инпуты не трогаем) —
-        // только для сегодняшнего дня; в history-режиме ячейки заблокированы (см. .food-form.history-mode).
+        // интерактивно для любой даты, включая прошлые дни через историю.
         root.querySelectorAll('.food-cell').forEach(cellEl => {
             const mealId = cellEl.dataset.meal;
             const rec = dayRec[mealId] || {};
-            if (isHistory) {
-                renderTimeScroll(cellEl.querySelector('.food-time'), rec.time || ''); // без onSelect → заблокировано
-                const textInput = cellEl.querySelector('.food-text');
-                textInput.disabled = true;
-                textInput.readOnly = true;
-            } else {
-                renderTimeScroll(cellEl.querySelector('.food-time'), rec.time || '', (label) => setMealField(mealId, 'time', label));
-                const textInput = cellEl.querySelector('.food-text');
-                textInput.addEventListener('input', (e) => setMealField(mealId, 'text', e.target.value));
-                // Кнопка «Готово»/«Done» на мобильной клавиатуре — скрываем клавиатуру, значение уже
-                // сохранено по input выше.
-                textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInput.blur(); } });
-            }
+            renderTimeScroll(cellEl.querySelector('.food-time'), rec.time || '', (label) => setMealField(mealId, 'time', label));
+            const textInput = cellEl.querySelector('.food-text');
+            textInput.addEventListener('input', (e) => setMealField(mealId, 'text', e.target.value));
+            // Кнопка «Готово»/«Done» на мобильной клавиатуре — скрываем клавиатуру, значение уже
+            // сохранено по input выше.
+            textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInput.blur(); } });
         });
         if (!isHistory) renderFoodWeek();
 
@@ -2080,9 +2057,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="metric-val ${over ? 'over' : ''}"><b>${Math.round(total)}</b> / ${Math.round(target)} ккал</span>
                 </div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
-                ${isHistory ? '' : `<div class="metric-actions" id="cal-target-actions"><button class="metric-goal" type="button" id="cal-target-btn">цель ${Math.round(target)} ккал</button></div>`}
+                <div class="metric-actions" id="cal-target-actions"><button class="metric-goal" type="button" id="cal-target-btn">цель ${Math.round(target)} ккал</button></div>
             </div>
-            ${isHistory ? '' : `
             <div class="cal-add-row">
                 <input type="text" class="formula-input" id="cal-search-input" placeholder="например, булочка с корицей [Цех85]" autocomplete="off">
                 <div id="cal-suggestions" class="cal-suggestions"></div>
@@ -2092,7 +2068,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <input type="text" class="formula-input" id="cal-manual-name" placeholder="название" maxlength="40">
                 <input type="text" class="formula-input cal-manual-kcal" id="cal-manual-kcal" inputmode="numeric" enterkeyhint="done" placeholder="ккал" min="0">
                 <button type="button" class="metric-add" id="cal-manual-add" aria-label="Добавить">＋</button>
-            </div>`}
+            </div>
             <div class="cal-day-list" id="cal-day-list"></div>
             ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-food-btn">← Вернуться к сегодня</button>' : ''}`;
         updateDateLabel('food', isHistory ? viewDate : null);
@@ -2107,9 +2083,9 @@ document.addEventListener('DOMContentLoaded', () => {
             list.innerHTML = recs.map(e => `<div class="cal-item">
                 <span class="cal-item-name">${escAttr(e.name)}</span>
                 <span class="cal-item-kcal">${Math.round(e.kcal)} ккал</span>
-                ${isHistory ? '' : `<button type="button" class="cal-item-del" data-id="${e.id}" aria-label="Удалить">✕</button>`}
+                <button type="button" class="cal-item-del" data-id="${e.id}" aria-label="Удалить">✕</button>
             </div>`).join('');
-            if (!isHistory) list.querySelectorAll('.cal-item-del').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.id)));
+            list.querySelectorAll('.cal-item-del').forEach(b => b.addEventListener('click', () => removeEntry(b.dataset.id)));
         }
         renderList();
 
@@ -2131,62 +2107,64 @@ document.addEventListener('DOMContentLoaded', () => {
             rerender();
         }
 
+        // Юзер попросил редактировать калории и за прошлые дни — все контролы ниже интерактивны
+        // независимо от isHistory, addEntry/removeEntry уже пишут в viewDate (совпадает с tKey,
+        // когда история не открыта). Кнопка «Назад к сегодня» — отдельно, только в history-режиме.
         if (isHistory) {
             const backBtn = document.getElementById('back-to-today-food-btn');
             if (backBtn) backBtn.addEventListener('click', () => { currentFoodHistoryDate = null; renderFood(); });
-        } else {
-            const searchInput = document.getElementById('cal-search-input');
-            const suggestBox = document.getElementById('cal-suggestions');
-            searchInput.addEventListener('input', () => {
-                const matches = searchFoodDb(searchInput.value);
-                suggestBox.innerHTML = matches.map(m => {
-                    const macroAttrs = m.protein != null ? ` data-protein="${m.protein}" data-fat="${m.fat}" data-carbs="${m.carbs}"` : '';
-                    return `<button type="button" class="cal-suggestion" data-name="${escAttr(foodLabel(m))}" data-kcal="${m.kcal}"${macroAttrs}>${foodLabel(m)}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`;
-                }).join('');
-                suggestBox.style.display = matches.length ? 'block' : 'none';
-            });
-            suggestBox.addEventListener('click', (e) => {
-                const btn = e.target.closest('.cal-suggestion');
-                if (!btn) return;
-                const macros = btn.dataset.protein != null ? { protein: +btn.dataset.protein, fat: +btn.dataset.fat, carbs: +btn.dataset.carbs } : null;
-                addEntry(btn.dataset.name, +btn.dataset.kcal, macros);
-            });
-            // Enter в поиске не должен никуда уходить — выбор позиции только кликом по подсказке
-            // (значений может совпасть несколько «булочка ...», молчаливый выбор первой — плохой UX).
-            searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
-
-            const manualName = document.getElementById('cal-manual-name');
-            const manualKcal = document.getElementById('cal-manual-kcal');
-            const addManual = () => {
-                const name = manualName.value.trim();
-                const kcal = parseFloat(String(manualKcal.value).replace(',', '.'));
-                if (!name || isNaN(kcal) || kcal < 0) return;
-                addEntry(name, kcal);
-            };
-            document.getElementById('cal-manual-add').addEventListener('click', addManual);
-            manualKcal.addEventListener('keydown', (e) => { if (e.key === 'Enter') addManual(); });
-            manualName.addEventListener('keydown', (e) => { if (e.key === 'Enter') manualKcal.focus(); });
-
-            const targetBtn = document.getElementById('cal-target-btn');
-            if (targetBtn) targetBtn.addEventListener('click', () => {
-                const actions = document.getElementById('cal-target-actions');
-                actions.innerHTML = `
-                    <span class="goal-edit-label">цель на день</span>
-                    <input type="text" class="goal-edit-input" inputmode="decimal" enterkeyhint="done" value="${Math.round(target)}" min="0">
-                    <span class="goal-edit-unit">ккал</span>
-                    <button class="goal-edit-save" type="button">ОК</button>
-                    <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
-                const gi = actions.querySelector('.goal-edit-input'); gi.focus(); gi.select();
-                const save = () => {
-                    const v = parseFloat(String(gi.value).replace(',', '.'));
-                    if (!isNaN(v) && v >= 0) { dashState.calorieTarget = v; saveProgress(); }
-                    rerender();
-                };
-                actions.querySelector('.goal-edit-save').addEventListener('click', save);
-                actions.querySelector('.goal-edit-cancel').addEventListener('click', rerender);
-                gi.addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); else if (ev.key === 'Escape') rerender(); });
-            });
         }
+        const searchInput = document.getElementById('cal-search-input');
+        const suggestBox = document.getElementById('cal-suggestions');
+        searchInput.addEventListener('input', () => {
+            const matches = searchFoodDb(searchInput.value);
+            suggestBox.innerHTML = matches.map(m => {
+                const macroAttrs = m.protein != null ? ` data-protein="${m.protein}" data-fat="${m.fat}" data-carbs="${m.carbs}"` : '';
+                return `<button type="button" class="cal-suggestion" data-name="${escAttr(foodLabel(m))}" data-kcal="${m.kcal}"${macroAttrs}>${foodLabel(m)}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`;
+            }).join('');
+            suggestBox.style.display = matches.length ? 'block' : 'none';
+        });
+        suggestBox.addEventListener('click', (e) => {
+            const btn = e.target.closest('.cal-suggestion');
+            if (!btn) return;
+            const macros = btn.dataset.protein != null ? { protein: +btn.dataset.protein, fat: +btn.dataset.fat, carbs: +btn.dataset.carbs } : null;
+            addEntry(btn.dataset.name, +btn.dataset.kcal, macros);
+        });
+        // Enter в поиске не должен никуда уходить — выбор позиции только кликом по подсказке
+        // (значений может совпасть несколько «булочка ...», молчаливый выбор первой — плохой UX).
+        searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+
+        const manualName = document.getElementById('cal-manual-name');
+        const manualKcal = document.getElementById('cal-manual-kcal');
+        const addManual = () => {
+            const name = manualName.value.trim();
+            const kcal = parseFloat(String(manualKcal.value).replace(',', '.'));
+            if (!name || isNaN(kcal) || kcal < 0) return;
+            addEntry(name, kcal);
+        };
+        document.getElementById('cal-manual-add').addEventListener('click', addManual);
+        manualKcal.addEventListener('keydown', (e) => { if (e.key === 'Enter') addManual(); });
+        manualName.addEventListener('keydown', (e) => { if (e.key === 'Enter') manualKcal.focus(); });
+
+        const targetBtn = document.getElementById('cal-target-btn');
+        if (targetBtn) targetBtn.addEventListener('click', () => {
+            const actions = document.getElementById('cal-target-actions');
+            actions.innerHTML = `
+                <span class="goal-edit-label">цель на день</span>
+                <input type="text" class="goal-edit-input" inputmode="decimal" enterkeyhint="done" value="${Math.round(target)}" min="0">
+                <span class="goal-edit-unit">ккал</span>
+                <button class="goal-edit-save" type="button">ОК</button>
+                <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
+            const gi = actions.querySelector('.goal-edit-input'); gi.focus(); gi.select();
+            const save = () => {
+                const v = parseFloat(String(gi.value).replace(',', '.'));
+                if (!isNaN(v) && v >= 0) { dashState.calorieTarget = v; saveProgress(); }
+                rerender();
+            };
+            actions.querySelector('.goal-edit-save').addEventListener('click', save);
+            actions.querySelector('.goal-edit-cancel').addEventListener('click', rerender);
+            gi.addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); else if (ev.key === 'Escape') rerender(); });
+        });
 
         const historyBtn = document.getElementById('history-btn-food');
         if (historyBtn) historyBtn.addEventListener('click', (e) => {
@@ -2471,7 +2449,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('#top-nav-slot .day-nav-row'), taskViewMode: 'day', text: 'Стрелками листаешь дни вперёд-назад, календарь справа — прыжок на любую дату.' },
         { target: () => document.querySelector('.task-day-row'), taskViewMode: 'day', text: 'Нажми на задачу, чтобы отметить её — текст перечеркнётся, а огонёк рядом покажет серию дней подряд.', requiresHabits: true },
         { target: () => document.querySelector('.task-day-settings'), taskViewMode: 'day', text: 'Кнопка «⋯» — переименовать задачу, поставить напоминание и удалить.', requiresHabits: true },
-        { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 10 регулярных).' },
+        { target: () => document.getElementById('add-habit-btn-day') || document.querySelector('.dash-habit-limit'), taskViewMode: 'day', text: 'Список — твой. Удали лишнее через «⋯», а эта кнопка открывает создание новой — регулярной или разовой, только на сегодня (до 30 регулярных).' },
         { target: () => document.getElementById('task-day-fields'), taskViewMode: 'day', text: '«Событие дня» и «Задача дня» — быстрые заметки на выбранный день, текст появляется прямо справа от кнопки.' },
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
         { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на задачу — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
@@ -3240,47 +3218,71 @@ document.addEventListener('DOMContentLoaded', () => {
         if (backBtn) backBtn.remove();
     }
 
+    // Коммитит правку прошлого дня прямо в dashState.checkinHistory[date][type] — в отличие от
+    // autoSaveCheckin (которая всегда пишет в new Date(), т.е. только «сегодня»), здесь дата
+    // фиксированная, взятая из календаря (см. loadHistoryData). XP за прошлые дни не начисляем —
+    // тот +3 уже был выдан (или не был, если юзер тогда пропустил чек-ап) в свой день.
+    function saveHistoryCheckin(type, date, key, value) {
+        if (!dashState.checkinHistory) dashState.checkinHistory = {};
+        if (!dashState.checkinHistory[date]) dashState.checkinHistory[date] = {};
+        if (!dashState.checkinHistory[date][type]) dashState.checkinHistory[date][type] = {};
+        dashState.checkinHistory[date][type][key] = value;
+        dashState.checkinHistory[date][type].savedAt = new Date().toISOString();
+        saveProgress();
+        const status = document.getElementById(`status-${type}`);
+        if (status) { status.textContent = 'Сохранено'; status.classList.add('show'); }
+    }
+
+    // Просмотр И редактирование прошлого дня — юзер попросил возможность поправить данные задним
+    // числом (раньше форма была жёстко заблокирована disabled+pointer-events:none, см. HANDOFF.md).
+    // Формы для дней без данных тоже открываются пустыми — можно заполнить чек-ап задним числом,
+    // а не только смотреть уже существующий.
     function loadHistoryData(type, date) {
-        const history = dashState.checkinHistory || {};
-        const data = history[date]?.[type];
-        
-        if (!data) {
-            alert('Нет данных за этот день');
-            loadTodayData(type);
-            return;
-        }
-    
+        if (!dashState.checkinHistory) dashState.checkinHistory = {};
+        const data = dashState.checkinHistory[date]?.[type] || {};
+
         const form = document.getElementById(`${type}-form`);
-        form.classList.add('history-mode'); // Включаем визуальный режим чтения
-        
-        // Блокируем шкалы
+        form.classList.remove('history-mode'); // теперь интерактивно, не только просмотр
+
+        // Шкалы 1-10 — как в initCheckins, но пишут через saveHistoryCheckin в фиксированную дату
         form.querySelectorAll('.scale-container').forEach(container => {
             const key = container.dataset.key;
+            if (!key) return;
             const val = data[key] || 0;
             container.innerHTML = '';
             container.className = 'scale-container';
-            
             for (let i = 1; i <= 10; i++) {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = `scale-btn ${i === val ? 'active' : ''}`;
                 btn.textContent = i;
-                btn.disabled = true; // Жёсткая блокировка
+                btn.addEventListener('click', () => {
+                    container.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    saveHistoryCheckin(type, date, key, i);
+                });
                 container.appendChild(btn);
             }
         });
         form.querySelectorAll('.time-scroll-container').forEach(container => {
-            renderTimeScroll(container, data[container.dataset.key] || '');
+            const key = container.dataset.key;
+            if (!key) return;
+            renderTimeScroll(container, data[key] || '', (label) => saveHistoryCheckin(type, date, key, label));
         });
 
-        // Блокируем инпуты
+        // Инпуты — снимаем блокировку и вешаем автосохранение на конкретную дату
         form.querySelectorAll('input').forEach(input => {
             const key = input.dataset.key;
-            if (key) input.value = data[key] || '';
-            input.disabled = true;
-            input.readOnly = true;
+            if (!key) return;
+            input.disabled = false;
+            input.readOnly = false;
+            const newInput = input.cloneNode(true);
+            newInput.value = data[key] || '';
+            input.parentNode.replaceChild(newInput, input);
+            newInput.addEventListener('input', (e) => saveHistoryCheckin(type, date, key, e.target.value));
+            newInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); newInput.blur(); } });
         });
-    
+
         updateDateLabel(type, date);
 
         // Кнопка возврата

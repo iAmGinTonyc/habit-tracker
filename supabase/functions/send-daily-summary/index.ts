@@ -88,6 +88,15 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
   const dayEvent = (state.dayEvents || {})[todayKey];
   if (dayEvent) sections.push(`Событие дня: ${dayEvent}`);
 
+  // Задачи дня (dashState.dayTasks[date] = [{text, done}], см. getDayTasks в habbittracker.js —
+  // старый формат единичного объекта без массива сюда почти не долетит, но на всякий случай тоже разворачиваем)
+  const rawDayTasks = (state.dayTasks || {})[todayKey];
+  const dayTasksToday: AnyState[] = Array.isArray(rawDayTasks) ? rawDayTasks : (rawDayTasks && rawDayTasks.text ? [rawDayTasks] : []);
+  if (dayTasksToday.length) {
+    const taskLines = dayTasksToday.map((t) => `${t.done ? '✅' : '◻️'} ${t.text}`);
+    sections.push('Задачи дня:\n' + taskLines.join('\n'));
+  }
+
   if (!sections.length) return null;
   return 'Итоги дня:\n\n' + sections.join('\n\n');
 }
