@@ -1366,25 +1366,50 @@ document.addEventListener('DOMContentLoaded', () => {
         const xAt = d => pad.l + (d - 0.5) * dayW;
         const yAt = hr => pad.t + ih - (hr / 24) * ih;
         const parseHM = s => { if (!s) return null; const [hh, mm] = String(s).split(':').map(Number); return isNaN(hh) ? null : hh + (mm || 0) / 60; };
+        const fmtHours = h => { const r = Math.round(h * 10) / 10; return (r % 1 === 0 ? String(r) : String(r).replace('.', ',')) + 'ч'; };
         const barW = Math.max(4, dayW * 0.55);
+        // Возвращает верхний (наименьший) y нарисованного отрезка — нужен, чтобы понять, ГДЕ выше
+        // всего на дне поставить подпись «сколько часов сна итого» (см. ниже).
         const drawSeg = (d, fromH, toH, color) => {
             const x = xAt(d) - barW / 2, y1 = yAt(fromH), y2 = yAt(toH);
             ctx.fillStyle = color;
             ctx.fillRect(x, Math.min(y1, y2), barW, Math.max(1, Math.abs(y2 - y1)));
+            return Math.min(y1, y2);
         };
         for (let d = 1; d <= days; d++) {
             const rec = hist[fdt(y, m, d)]?.morning;
             if (!rec) continue;
             const sleepH = parseHM(rec.sleepTime), wakeH = parseHM(rec.wakeTime);
             if (sleepH == null || wakeH == null) continue;
-            if (wakeH <= sleepH) { drawSeg(d, sleepH, 24, '#1e3a8a'); drawSeg(d, 0, wakeH, '#1e3a8a'); } // через полночь
-            else drawSeg(d, sleepH, wakeH, '#1e3a8a');
+            let topY;
+            if (wakeH <= sleepH) { drawSeg(d, sleepH, 24, '#1e3a8a'); topY = drawSeg(d, 0, wakeH, '#1e3a8a'); } // через полночь — верх всегда у отрезка sleepH→24 (yAt(24)=pad.t), но берём min на всякий случай ниже
+            else topY = drawSeg(d, sleepH, wakeH, '#1e3a8a');
             // Часы сна урывками (интервальный сон) — «добавить часы сна» в чек-апе, см.
             // index.html. Не привязаны к реальному времени наверняка, поэтому просто
             // достраиваем отрезок светлым цветом сразу после подъёма — показываем итоговое
             // количество сна за день, а не точное время дрёмы.
-            const extra = parseFloat(rec.extraSleepHours);
-            if (extra > 0) drawSeg(d, wakeH, Math.min(24, wakeH + extra), '#93c5fd');
+            const extra = parseFloat(rec.extraSleepHours) || 0;
+            if (extra > 0) topY = Math.min(topY, drawSeg(d, wakeH, Math.min(24, wakeH + extra), '#93c5fd'));
+            if (wakeH <= sleepH) topY = Math.min(topY, yAt(24)); // подстраховка для через-полночь случая
+
+            // Подпись «сколько часов сна итого за день» — юзер попросил цифру на столбике,
+            // повёрнутую на 90° (иначе не влезает в узкую колонку дня). Растёт ВВЕРХ от чуть выше
+            // самого верхнего нарисованного отрезка; у самого края графика (очень раннее время
+            // отбоя) подпись может частично не влезать по высоте — сознательно не решаем это здесь,
+            // редкий крайний случай не стоит усложнения макета ради него.
+            const mainDur = wakeH <= sleepH ? (24 - sleepH) + wakeH : wakeH - sleepH;
+            const totalHours = mainDur + extra;
+            if (totalHours > 0) {
+                ctx.save();
+                ctx.translate(xAt(d), Math.max(pad.t + 8, topY - 4));
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#1e3a8a';
+                ctx.font = '9px sans-serif';
+                ctx.fillText(fmtHours(totalHours), 0, 0);
+                ctx.restore();
+            }
         }
         drawDayLabelsXAxis(ctx, y, m, days, xAt, pad.t + ih);
     }
