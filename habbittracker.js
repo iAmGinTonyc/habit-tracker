@@ -479,7 +479,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // === ИНИЦИАЛИЗАЦИЯ ===
     function init() {
         const saved = loadProgress();
-        if (saved && saved.habits && saved.habits.length) {
+        // Array.isArray, а не saved.habits.length — юзер, выбравший на онбординге «Определить
+        // задачи самостоятельно» (showCategoryPicker → habits: [], намеренно пустой массив, см.
+        // HANDOFF.md §17), с проверкой на .length каждый раз попадал обратно на интро/выбор
+        // категории вместо дашборда: пустой массив тоже falsy для .length, поэтому уже
+        // онбордившийся юзер выглядел как «новый» при КАЖДОМ повторном заходе — баг-репорт юзера
+        // «прогресс не сохранился, когда зашёл второй раз» (см. HANDOFF.md). habits как МАССИВ
+        // (даже пустой) есть только после реального прохождения онбординга/createDefaultState —
+        // pristine localStorage вообще не содержит ключ habits, там loadProgress() отдаёт null.
+        if (saved && Array.isArray(saved.habits)) {
             dashState = { ...dashState, ...saved };
             if (!dashState.checkins) dashState.checkins = { morning: {}, evening: {} };
             if (!dashState.checkinHistory) dashState.checkinHistory = {};
