@@ -676,10 +676,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // вернуть на его место скрытые мини-игры, без гейта по уровню — доступ и так за подпиской).
     // Сама кнопка (#btn-morning) не меняется, меняется только её содержимое + куда ведёт клик
     // (см. wireViewButtons). Выключили Pro mode — возвращаем оригинальную разметку/маршрут.
+    // Отдельная (родная) кнопка «Игры» (data-view="training") в Pro mode прячется — она вела бы
+    // в тот же #view-training, что и подменённая «Чек-ап», дублирующая кнопка юзеру не нужна.
+    // FEATURES.games может прятать эту кнопку насовсем (см. DOMContentLoaded) — тогда её и
+    // подавно показывать не нужно, только скрывать сильнее не открываем состояние обратно.
     function syncProModeTab() {
         const btn = document.getElementById('btn-morning');
-        if (!btn) return;
-        btn.innerHTML = dashState.psychoMode ? GAMES_TAB_HTML : morningBtnDefaultHTML;
+        if (btn) btn.innerHTML = dashState.psychoMode ? GAMES_TAB_HTML : morningBtnDefaultHTML;
+        const trainingBtn = document.querySelector('.view-btn[data-view="training"]');
+        if (trainingBtn && FEATURES.games) trainingBtn.style.display = dashState.psychoMode ? 'none' : '';
     }
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 

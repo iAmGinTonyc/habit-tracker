@@ -2079,3 +2079,23 @@ overscroll-behavior: contain` на `#dash-habit-list` (список «День»
 Не проверено вживую — та же Telegram-only причина, что в §38/39. `node --check habbittracker.js`
 — чисто.
 `?v=37` → `?v=38` (JS), `?v=36` → `?v=37` (CSS).
+
+---
+
+## 41. Родная кнопка «Игры» скрыта в Pro mode — дублировала подменённую «Чек-ап» (08.08.2026)
+
+Юзер попросил скрыть вкладку игр в Pro mode. В Pro mode кнопка «Чек-ап» (`#btn-morning`) и без
+того подменяется на «Игры» и ведёт в `#view-training` (см. §… про `syncProModeTab`/
+`GAMES_TAB_HTML`) — а родная кнопка «Игры» (`.view-btn[data-view="training"]`) при этом
+оставалась на месте и вела туда же, т.е. в тавбаре было два входа в один и тот же экран.
+
+`syncProModeTab()` (`habbittracker.js`) теперь дополнительно скрывает/показывает родную кнопку
+«Игры»: `style.display = dashState.psychoMode ? 'none' : ''`. Условие `&& FEATURES.games` — если
+фича-флаг и так спрятал кнопку насовсем при `DOMContentLoaded` (`el.style.display = 'none'`), не
+трогаем её обратно на `''` при выключении Pro mode. Функция уже вызывается в нужных местах —
+`showDashboard()` (первичная отрисовка при заходе, если Pro mode был включён в прошлый раз) и
+`setPsychoMode()` (сам тумблер) — новую точку вызова добавлять не пришлось.
+
+Не проверено вживую — та же Telegram-only причина, что в §38–40. `node --check habbittracker.js`
+— чисто.
+`?v=38` → `?v=39`.
