@@ -412,7 +412,12 @@ document.addEventListener('visibilitychange', () => {
 async function loadSubscription() {
   if (!me) return;
   const r = await withTimeout(sb.from('subscriptions').select('*').eq('user_id', me).maybeSingle(), 4000);
-  if (r === TIMED_OUT || !r.data) { $('sub-status').textContent = '—'; window.hasActiveSubscription = false; return; }
+  if (r === TIMED_OUT || !r.data) {
+    $('sub-status').textContent = '—';
+    window.hasActiveSubscription = false;
+    if (typeof window.syncPromodeStripes === 'function') window.syncPromodeStripes();
+    return;
+  }
   const s = r.data;
   window.lastSubscription = s;
   const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '';
@@ -420,6 +425,11 @@ async function loadSubscription() {
   // снимает пейволл с тумблера. Не трогает free-триал/бонусные дни: это отдельный, более широкий
   // гейт на доступ ко всему приложению (см. computeAppAccess/applyAccess выше).
   window.hasActiveSubscription = s.status === 'active';
+  // «Задачи»/«Питание» подменяют собой отдельный тумблер Pro mode, пока есть активная подписка
+  // (см. syncPromodeStripes в habbittracker.js) — статус подписки меняется асинхронно после того,
+  // как дашборд уже отрисован, поэтому дёргаем пересчёт явно, а не полагаемся на то, что кто-то
+  // ещё вызовет syncProModeTab() к этому моменту.
+  if (typeof window.syncPromodeStripes === 'function') window.syncPromodeStripes();
   const { hasAccess, daysLeft } = computeAppAccess(s);
   if (s.status === 'active') {
     // family_owner_id заполнен только у ЧЛЕНОВ семьи (не у самого покупателя, см.

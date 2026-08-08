@@ -688,7 +688,39 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncProModeTab() {
         const btn = document.getElementById('btn-morning');
         if (btn) btn.style.display = dashState.psychoMode ? 'none' : '';
+        syncPromodeStripes();
     }
+
+    // Юзер попросил: пока есть активная подписка, отдельный тумблер «Pro mode» (#psycho-toggle)
+    // пропадает — вместо него «Задачи» и «Питание» сами становятся переключателем. Правая ~22%
+    // каждой кнопки выглядит инвертированной (см. .vb-promode-stripe в CSS) с текстом «PRO MODE»/
+    // «BASE MODE», повёрнутым на 90°. Клик по полоске переключает режим и не даёт клику
+    // всплыть до самой кнопки (иначе вместо тумблера сработала бы обычная навигация вкладки).
+    // Без подписки — прежнее поведение, старый тумблер с замком/пейволлом.
+    function syncPromodeStripes() {
+        const isPro = !!window.hasActiveSubscription;
+        const toggle = document.getElementById('psycho-toggle');
+        if (toggle) toggle.style.display = isPro ? 'none' : '';
+        ['btn-tasks', 'btn-food'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.classList.toggle('has-promode-stripe', isPro);
+            if (!isPro) return;
+            let stripe = btn.querySelector('.vb-promode-stripe');
+            if (!stripe) {
+                stripe = document.createElement('span');
+                stripe.className = 'vb-promode-stripe';
+                stripe.innerHTML = '<span class="vb-promode-stripe-text"></span>';
+                stripe.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setPsychoMode(!dashState.psychoMode);
+                });
+                btn.appendChild(stripe);
+            }
+            stripe.querySelector('.vb-promode-stripe-text').textContent = dashState.psychoMode ? 'BASE MODE' : 'PRO MODE';
+        });
+    }
+    window.syncPromodeStripes = syncPromodeStripes; // auth.js дёргает при смене статуса подписки
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
