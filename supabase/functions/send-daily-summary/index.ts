@@ -47,6 +47,18 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
     .map((h: AnyState) => `✅ ${h.text}`);
   if (habitLines.length) sections.push('Привычки:\n' + habitLines.join('\n'));
 
+  // Разовые задачи на сегодня (dashState.habits с type:'oneTime' и date===todayKey, см.
+  // renderTaskDayView/openNewHabitModal в habbittracker.js) — юзер попросил слать их отдельным
+  // списком, ОБА исхода: выполненные (✅) и невыполненные (тег #невыполнено — тем же тегом
+  // помечены и невыполненные «Задачи дня» ниже). У обычных регулярных привычек (раздел
+  // «Привычки» выше) нет понятия «дедлайн на сегодня», поэтому «невыполнено» для них не считаем —
+  // только для разовых, у которых date жёстко привязан к конкретному дню.
+  const oneTimeToday = (state.habits || []).filter((h: AnyState) => h.type === 'oneTime' && h.date === todayKey);
+  if (oneTimeToday.length) {
+    const oneTimeLines = oneTimeToday.map((h: AnyState) => (historyToday[h.uid] ? `✅ ${h.text}` : `#невыполнено ${h.text}`));
+    sections.push('Разовые задачи:\n' + oneTimeLines.join('\n'));
+  }
+
   // Числовые метрики Pro mode (dashState.metricLog[date][metricId] = число)
   const metricLogToday = (state.metricLog || {})[todayKey] || {};
   const metricLines = (state.metrics || [])
@@ -89,11 +101,13 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
   if (dayEvent) sections.push(`Событие дня: ${dayEvent}`);
 
   // Задачи дня (dashState.dayTasks[date] = [{text, done}], см. getDayTasks в habbittracker.js —
-  // старый формат единичного объекта без массива сюда почти не долетит, но на всякий случай тоже разворачиваем)
+  // старый формат единичного объекта без массива сюда почти не долетит, но на всякий случай тоже
+  // разворачиваем). Тот же тег #невыполнено, что и у разовых задач выше — юзер попросил
+  // унифицировать оба списка.
   const rawDayTasks = (state.dayTasks || {})[todayKey];
   const dayTasksToday: AnyState[] = Array.isArray(rawDayTasks) ? rawDayTasks : (rawDayTasks && rawDayTasks.text ? [rawDayTasks] : []);
   if (dayTasksToday.length) {
-    const taskLines = dayTasksToday.map((t) => `${t.done ? '✅' : '◻️'} ${t.text}`);
+    const taskLines = dayTasksToday.map((t) => (t.done ? `✅ ${t.text}` : `#невыполнено ${t.text}`));
     sections.push('Задачи дня:\n' + taskLines.join('\n'));
   }
 
