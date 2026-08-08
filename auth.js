@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 let mode = 'login'; // 'login' | 'register'
 let me = null, myEmail = null, myDisplayName = null; // id/email/кастомное имя залогиненного
 let mandatory = false, onAuthed = null; // принудительный вход после тапа по заставке
-window.familyMemberCount = 0; // до загрузки семьи/до входа — считаем «никого нет» (см. renderInvitedFriends)
+window.familyMemberCount = 0; // до загрузки семьи/до входа — считаем «никого нет» (см. renderFamilyMembers)
 
 const TIMED_OUT = Symbol('timeout');
 // Защита от зависшего запроса к Supabase (см. коммент у boot()): если промис не резолвится за
@@ -165,11 +165,6 @@ function setMode(m) {
 function tgUser() {
   try { return window.Telegram.WebApp.initDataUnsafe.user || null; } catch (e) { return null; }
 }
-function tgDisplayId() {
-  const tu = tgUser();
-  if (tu) return tu.username ? ('@' + tu.username) : (tu.first_name || 'Telegram');
-  return myEmail || '—';
-}
 
 async function refresh() {
   // Пока не знаем статус входа — показываем нейтральное «Входим…», а НЕ форму входа по
@@ -215,7 +210,6 @@ async function refresh() {
       return;
     }
     $('auth-checking').style.display = 'none';
-    $('prof-email').textContent = tgDisplayId();
     $('prof-id').textContent = '…';
     // профиль с invite_id создаётся триггером в БД при регистрации (см. db/phase1_profiles.sql).
     // Один повтор через 800мс, если первый запрос упал (не таймаут) — данные в базе почти
@@ -577,7 +571,10 @@ async function loadFamily() {
     const r2 = await withTimeout(sb.from('stats').select('*').in('id', acceptedIds), 4000);
     if (r2 !== TIMED_OUT) statsById = Object.fromEntries((r2.data || []).map(s => [s.id, s]));
   }
-  renderInvitedFriends(items, statsById);
+  // Юзер попросил разделить единый список на две секции экрана: «Семья» (принятые, с живой
+  // статистикой) сразу под подпиской, «Приглашённые друзья» (ещё не в семье) — в самом низу.
+  renderFamilyMembers(items.filter(it => it.isFamily), statsById);
+  renderPendingFriends(items.filter(it => !it.isFamily));
   updateBonusStats();
 }
 async function sendInvite() {
@@ -610,29 +607,45 @@ function updateBonusStats() {
   const friendsEl = $('bonus-friends-count'); if (friendsEl) friendsEl.textContent = window.invitedFriendsCount || 0;
   const daysEl = $('bonus-days-count'); if (daysEl) daysEl.textContent = (s && s.bonus_days) || 0;
 }
-function renderInvitedFriends(items, statsById) {
-  const box = $('invited-friends-list');
-  if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше или поделись ссылкой.</div>'; return; }
-  box.innerHTML = '<div class="fam-h">Приглашённые друзья</div>' + items.map(it => {
-    const s = it.isFamily ? statsById[it.counterpart] : null;
+// «Семья» — только принятые связи (см. #family-list в index.html, сразу под подпиской), всегда
+// со статистикой собеседника (are_friends уже разрешает читать stats обеим сторонам, см.
+// db/phase3_family.sql). Кнопка «Удалить из семьи» доступна любой стороне (set_family_status).
+function renderFamilyMembers(items, statsById) {
+  const box = $('family-list');
+  if (!box) return;
+  if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше.</div>'; return; }
+  box.innerHTML = items.map(it => {
+    const s = statsById[it.counterpart];
     const name = (s && s.name) || it.fallbackName || '—';
     const statsHtml = s
       ? `<div class="fam-stats"><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
       : '';
-    // Pending-заявка, отправленная МНОЙ (я ввёл чужой код, жду подтверждения от владельца) —
-    // ни принять, ни отменить со своей стороны нельзя, показываем статус без кнопки.
-    const waitingForThem = !it.isFamily && !it.iAmApprover;
-    const actionHtml = waitingForThem
-      ? '<span class="fam-fam-waiting">ждём подтверждения</span>'
-      : `<button class="fam-fam-btn${it.isFamily ? ' fam-fam-remove' : ''}" data-id="${it.id}" data-action="${it.isFamily ? 'remove' : 'add'}" type="button">${it.isFamily ? 'Удалить из семьи' : 'Добавить в семью'}</button>`;
     return `<div class="fam-friend">
       <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}</div>
+      <button class="fam-fam-btn fam-fam-remove" data-id="${it.id}" data-action="remove" type="button">Удалить из семьи</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => removeFromFamily(b.dataset.id)));
+}
+
+// «Приглашённые друзья» — самый низ профиля (юзер попросил): связи, ещё не принятые в семью.
+// Своя pending-заявка (я ввёл чужой код, жду подтверждения владельца) показывается без кнопки —
+// принять/отменить её могу не я, а тот, чей код я ввёл (см. iAmApprover в loadFamily).
+function renderPendingFriends(items) {
+  const box = $('invited-friends-list');
+  if (!box) return;
+  if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Поделись ссылкой ниже.</div>'; return; }
+  box.innerHTML = items.map(it => {
+    const waitingForThem = !it.iAmApprover;
+    const actionHtml = waitingForThem
+      ? '<span class="fam-fam-waiting">ждём подтверждения</span>'
+      : `<button class="fam-fam-btn" data-id="${it.id}" data-action="add" type="button">Добавить в семью</button>`;
+    return `<div class="fam-friend">
+      <div class="fam-friend-info"><div class="fam-name">${it.fallbackName || '—'}</div></div>
       ${actionHtml}
     </div>`;
   }).join('');
-  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => {
-    if (b.dataset.action === 'add') addToFamily(b.dataset.id); else removeFromFamily(b.dataset.id);
-  }));
+  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => addToFamily(b.dataset.id)));
 }
 
 async function submit() {
