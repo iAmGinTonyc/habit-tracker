@@ -32,9 +32,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const introText = document.getElementById('intro-text');
     const dashboardScreen = document.getElementById('dashboard-screen');
     const loadingOverlay = document.getElementById('loading-overlay');
-    // Исходная разметка кнопки «Чек-ап» — в Pro mode эта же кнопка подменяется на «Игры»
-    // (см. syncProModeTab), это позволяет восстановить оригинал при выключении Pro mode.
-    const morningBtnDefaultHTML = (document.getElementById('btn-morning') || {}).innerHTML || '';
 
     // Применяем фиче-флаги: скрываем UI отключённых фич через style.display, код/данные не трогаем
     if (!FEATURES.psychoMode) {
@@ -605,11 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewName === 'habits') { startDayTimer(); } else if (timerInterval) { clearInterval(timerInterval); }
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.classList.remove('active');
-            // В Pro mode #btn-morning (data-view="morning") маршрутизируется на 'training' (см.
-            // wireViewButtons/syncProModeTab), но сама кнопка своего dataset.view не меняет —
-            // подсвечиваем её отдельным условием, иначе активной осталась бы скрытая кнопка «Игры».
-            const isProGamesBtn = btn.id === 'btn-morning' && dashState.psychoMode && viewName === 'training';
-            if (btn.dataset.view === viewName || isProGamesBtn) btn.classList.add('active');
+            if (btn.dataset.view === viewName) btn.classList.add('active');
         });
         if (viewName === 'habits') renderDayView();
         else if (viewName === 'training') initTrainingMenu();
@@ -639,8 +632,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const todayData = history[today] || {};
         
         if (morningBtn) {
-            // В Pro mode эта кнопка ведёт на «Игры», а не на чек-ап (см. syncProModeTab) — пульс-
-            // напоминание про незаполненный чек-ап тут неуместен.
+            // В Pro mode кнопка скрыта целиком (см. syncProModeTab) — пульс-напоминание про
+            // незаполненный чек-ап тут неуместен.
             const hasMorning = todayData.morning && Object.keys(todayData.morning).length > 0;
             morningBtn.classList.toggle('pulse', !hasMorning && !dashState.psychoMode);
         }
@@ -669,22 +662,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const DOTS = '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>';
     const LOCK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
     const CALENDAR_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>';
-    // Та же иконка, что у (скрытой) кнопки «Игры» в таб-баре — переиспользуется в Pro mode,
-    // см. syncProModeTab.
-    const GAMES_TAB_HTML = '<span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span><span class="vb-txt">Игры</span>';
-    // Pro mode подменяет кнопку «Чек-ап» на «Игры» (юзер попросил убрать чек-ап из Pro mode и
-    // вернуть на его место скрытые мини-игры, без гейта по уровню — доступ и так за подпиской).
-    // Сама кнопка (#btn-morning) не меняется, меняется только её содержимое + куда ведёт клик
-    // (см. wireViewButtons). Выключили Pro mode — возвращаем оригинальную разметку/маршрут.
-    // Отдельная (родная) кнопка «Игры» (data-view="training") в Pro mode прячется — она вела бы
-    // в тот же #view-training, что и подменённая «Чек-ап», дублирующая кнопка юзеру не нужна.
-    // FEATURES.games может прятать эту кнопку насовсем (см. DOMContentLoaded) — тогда её и
-    // подавно показывать не нужно, только скрывать сильнее не открываем состояние обратно.
+    // Pro mode прячет кнопку «Чек-ап» целиком (юзер попросил убрать чек-ап из Pro mode) — раньше
+    // на её месте подменой показывались мини-игры (см. HANDOFF.md §41/43), но это был ЕДИНСТВЕННЫЙ
+    // способ дотянуться до игр во всём приложении (родная кнопка «Игры» и так навсегда скрыта
+    // флагом FEATURES.games=false, см. DOMContentLoaded) — юзер решил, что игр в Pro mode быть не
+    // должно совсем, даже такой ценой. Кнопка (#btn-morning) просто прячется/показывается,
+    // содержимое/маршрут больше не подменяются.
     function syncProModeTab() {
         const btn = document.getElementById('btn-morning');
-        if (btn) btn.innerHTML = dashState.psychoMode ? GAMES_TAB_HTML : morningBtnDefaultHTML;
-        const trainingBtn = document.querySelector('.view-btn[data-view="training"]');
-        if (trainingBtn && FEATURES.games) trainingBtn.style.display = dashState.psychoMode ? 'none' : '';
+        if (btn) btn.style.display = dashState.psychoMode ? 'none' : '';
     }
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
@@ -2935,8 +2921,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function initTrainingMenu() {
         const container = document.getElementById('training-games-container');
         if (!container) return;
-        // В Pro mode эта вкладка занимает место чек-апа (см. syncProModeTab) — доступ и так за
-        // платной подпиской, поэтому левел-гейт тут не нужен, все игры открыты сразу.
+        // #view-training сейчас недостижим из таб-бара вообще (родная кнопка «Игры» скрыта
+        // FEATURES.games=false, а Pro mode больше не подменяет собой «Чек-ап» на неё, см.
+        // syncProModeTab/HANDOFF.md §43) — код/данные не удаляем, только прячем UI, как и с
+        // остальными фиче-флагами. allUnlocked оставлен на случай возврата фичи: доступ и так был
+        // бы за платной подпиской, левел-гейт был бы не нужен.
         const allUnlocked = dashState.psychoMode;
         if (!allUnlocked) checkGameUnlock(); // если есть невыбранная разблокировка — предложить выбор
         const cards = GAME_ORDER.map(g => {
@@ -3310,12 +3299,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === КНОПКИ ПЕРЕКЛЮЧЕНИЯ ===
     document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            // В Pro mode кнопка «Чек-ап» подменена на «Игры» (см. syncProModeTab) — ведёт на
-            // #view-training вместо #view-morning, сама кнопка (data-view) не меняется.
-            const view = (btn.dataset.view === 'morning' && dashState.psychoMode) ? 'training' : btn.dataset.view;
-            switchView(view);
-        });
+        btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
 
     // === «СОБЫТИЕ ДНЯ» / «ЗАДАЧА ДНЯ» ===
