@@ -536,19 +536,39 @@ function shareInviteLink() {
   }
 }
 
-// === ПРИГЛАШЁННЫЕ ДРУЗЬЯ / СЕМЬЯ (Фаза 3 + Фаза 7) ===
-// «Приглашён» = любая invites-строка с to_id=я (кто-то использовал мой код/ссылку) — бонусные
-// дни начисляются ровно на это (см. db/phase7_…sql, триггер AFTER INSERT), НЕЗАВИСИМО от того,
-// добавлен ли этот человек потом в семью. «В семье» = status=accepted; кнопки «Добавить/Удалить
-// из семьи» ниже просто переключают status между accepted и pending — это уже разрешено
-// существующей RLS-политикой (to_id=auth.uid() может update), схему под это не меняли.
+// === ПРИГЛАШЁННЫЕ ДРУЗЬЯ / СЕМЬЯ (Фаза 3 + Фаза 7 + Фаза 16) ===
+// invites.to_id — владелец введённого кода, from_id — тот, кто его ввёл (см. send_invite,
+// db/phase3_family.sql). Раньше «Семья» на экране профиля читала ТОЛЬКО to_id=я — то есть у
+// человека, который сам ввёл чужой код, связь была видна лишь на профиле ДРУГОЙ стороны, а свой
+// список выглядел пустым (юзер репортил «пропал член семьи» — на деле никогда не появлялся с
+// его стороны). are_friends()/revoke_family_access (Фаза 9) и так уже были симметричны — не
+// хватало зеркального отображения. Теперь читаем обе стороны (`from_id=я OR to_id=я`) и
+// схлопываем в единый список по counterpart (собеседнику).
+//
+// «Приглашён» (бонус за реферала, см. db/phase7_…sql) — отдельный счётчик, ТОЛЬКО to_id=я (кто-то
+// использовал именно МОЙ код) — не путать со «семьёй»: приглашение засчитывается один раз,
+// независимо от направления связи и от того, добавлен ли человек в семью впоследствии.
 async function loadFamily() {
   if (!me) return;
-  const r1 = await withTimeout(sb.from('invites').select('id, from_id, from_code, status').eq('to_id', me), 4000);
+  const r1 = await withTimeout(sb.from('invites').select('id, from_id, to_id, from_code, status').or(`from_id.eq.${me},to_id.eq.${me}`), 4000);
   if (r1 === TIMED_OUT) return; // сеть подвисла — тихо выходим, следующий refresh() попробует снова
-  const invited = r1.data || [];
-  window.invitedFriendsCount = invited.length; // читает профиль (бонус-статистика) и пейволл
-  const acceptedIds = invited.filter(inv => inv.status === 'accepted').map(inv => inv.from_id);
+  const rows = r1.data || [];
+  window.invitedFriendsCount = rows.filter(r => r.to_id === me).length; // читает профиль (бонус-статистика) и пейволл
+
+  // iAmApprover — я to_id (владелец кода), только владелец может подтвердить pending-заявку
+  // кнопкой «Добавить в семью» (см. send_invite — approve всегда делает тот, чей код ввели).
+  // Обратную сторону (from_id=я, pending) показываем как «жду подтверждения», без кнопки.
+  const items = rows.map(r => ({
+    id: r.id,
+    counterpart: r.from_id === me ? r.to_id : r.from_id,
+    isFamily: r.status === 'accepted',
+    iAmApprover: r.to_id === me,
+    // from_code — это код САМОГО from_id, а не собеседника; как имя годится только когда я
+    // сам to_id (тогда from_code принадлежит собеседнику), в обратную сторону это мой же код.
+    fallbackName: r.from_id === me ? null : r.from_code,
+  }));
+
+  const acceptedIds = items.filter(i => i.isFamily).map(i => i.counterpart);
   // Читается пейволлом Pro mode/после триала (habbittracker.js) — пока в семье никого нет,
   // покупка Family недоступна (план дешевле именно ЗА СЧЁТ нескольких человек).
   window.familyMemberCount = acceptedIds.length;
@@ -557,7 +577,7 @@ async function loadFamily() {
     const r2 = await withTimeout(sb.from('stats').select('*').in('id', acceptedIds), 4000);
     if (r2 !== TIMED_OUT) statsById = Object.fromEntries((r2.data || []).map(s => [s.id, s]));
   }
-  renderInvitedFriends(invited, statsById);
+  renderInvitedFriends(items, statsById);
   updateBonusStats();
 }
 async function sendInvite() {
@@ -572,14 +592,17 @@ async function sendInvite() {
   $('fam-invite-input').value = '';
   loadFamily();
 }
+// set_family_status (Фаза 16, SECURITY DEFINER) вместо прямого update — раньше RLS "invites
+// respond" пускала менять статус только to_id, из-за чего сторона from_id не могла ни выйти из
+// семьи, ни вернуться в нём со своей половины экрана. RPC пускает любую сторону связи.
 async function addToFamily(id) {
-  await sb.from('invites').update({ status: 'accepted' }).eq('id', id);
+  await sb.rpc('set_family_status', { row_id: id, new_status: 'accepted' });
   loadFamily();
 }
 async function removeFromFamily(id) {
   // 'pending' переиспользуется как «приглашён, но не в семье» (не «ожидает ответа») — бонус за
   // реферала при этом не трогается, он был начислен один раз при первом появлении строки.
-  await sb.from('invites').update({ status: 'pending' }).eq('id', id);
+  await sb.rpc('set_family_status', { row_id: id, new_status: 'pending' });
   loadFamily();
 }
 function updateBonusStats() {
@@ -587,19 +610,24 @@ function updateBonusStats() {
   const friendsEl = $('bonus-friends-count'); if (friendsEl) friendsEl.textContent = window.invitedFriendsCount || 0;
   const daysEl = $('bonus-days-count'); if (daysEl) daysEl.textContent = (s && s.bonus_days) || 0;
 }
-function renderInvitedFriends(list, statsById) {
+function renderInvitedFriends(items, statsById) {
   const box = $('invited-friends-list');
-  if (!list.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше или поделись ссылкой.</div>'; return; }
-  box.innerHTML = '<div class="fam-h">Приглашённые друзья</div>' + list.map(inv => {
-    const isFamily = inv.status === 'accepted';
-    const s = isFamily ? statsById[inv.from_id] : null;
-    const name = (s && s.name) || inv.from_code || '—';
+  if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше или поделись ссылкой.</div>'; return; }
+  box.innerHTML = '<div class="fam-h">Приглашённые друзья</div>' + items.map(it => {
+    const s = it.isFamily ? statsById[it.counterpart] : null;
+    const name = (s && s.name) || it.fallbackName || '—';
     const statsHtml = s
       ? `<div class="fam-stats"><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
       : '';
+    // Pending-заявка, отправленная МНОЙ (я ввёл чужой код, жду подтверждения от владельца) —
+    // ни принять, ни отменить со своей стороны нельзя, показываем статус без кнопки.
+    const waitingForThem = !it.isFamily && !it.iAmApprover;
+    const actionHtml = waitingForThem
+      ? '<span class="fam-fam-waiting">ждём подтверждения</span>'
+      : `<button class="fam-fam-btn${it.isFamily ? ' fam-fam-remove' : ''}" data-id="${it.id}" data-action="${it.isFamily ? 'remove' : 'add'}" type="button">${it.isFamily ? 'Удалить из семьи' : 'Добавить в семью'}</button>`;
     return `<div class="fam-friend">
       <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}</div>
-      <button class="fam-fam-btn${isFamily ? ' fam-fam-remove' : ''}" data-id="${inv.id}" data-action="${isFamily ? 'remove' : 'add'}" type="button">${isFamily ? 'Удалить из семьи' : 'Добавить в семью'}</button>
+      ${actionHtml}
     </div>`;
   }).join('');
   box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => {
