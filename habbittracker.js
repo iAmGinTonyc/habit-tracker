@@ -217,7 +217,10 @@ document.addEventListener('DOMContentLoaded', () => {
         let mood = null;
         const ch = dashState.checkinHistory || {};
         Object.keys(ch).sort().forEach(k => { const m = ch[k] && ch[k].morning && ch[k].morning.mood; if (m != null && m !== '') mood = +m; });
-        return { level: dashState.level || 1, streak, weekPct, mood };
+        // Событие дня — юзер попросил показывать семье (см. HANDOFF.md §46), только СЕГОДНЯШНЕЕ
+        // (dashState.dayEvents[todayKey()]), не история за все дни.
+        const dayEvent = (dashState.dayEvents || {})[todayKey()] || null;
+        return { level: dashState.level || 1, streak, weekPct, mood, dayEvent };
     }
     window.getSummary = getSummary;
 

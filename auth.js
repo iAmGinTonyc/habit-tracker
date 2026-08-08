@@ -274,7 +274,7 @@ async function syncMyStats() {
   await sb.from('stats').upsert({
     id: me,
     name: myDisplayName || defaultName(),
-    streak: s.streak, week_pct: s.weekPct, mood: s.mood,
+    streak: s.streak, week_pct: s.weekPct, mood: s.mood, day_event: s.dayEvent,
     updated_at: new Date().toISOString()
   });
 }
@@ -607,6 +607,12 @@ function updateBonusStats() {
   const friendsEl = $('bonus-friends-count'); if (friendsEl) friendsEl.textContent = window.invitedFriendsCount || 0;
   const daysEl = $('bonus-days-count'); if (daysEl) daysEl.textContent = (s && s.bonus_days) || 0;
 }
+// name/day_event — свободный текст с чужого устройства (имя до 30 символов, событие дня до 200,
+// см. index.html #prof-name-input/#day-event-input) — экранируем перед вставкой в innerHTML,
+// иначе член семьи мог бы вписать себе в имя/событие дня разметку, которая выполнится в профиле
+// у ДРУГИХ членов семьи (won и before this fix — статус пофиксил заодно, раз уже трогаю функцию).
+const escHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 // «Семья» — только принятые связи (см. #family-list в index.html, сразу под подпиской), всегда
 // со статистикой собеседника (are_friends уже разрешает читать stats обеим сторонам, см.
 // db/phase3_family.sql). Кнопка «Удалить из семьи» доступна любой стороне (set_family_status).
@@ -616,12 +622,15 @@ function renderFamilyMembers(items, statsById) {
   if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше.</div>'; return; }
   box.innerHTML = items.map(it => {
     const s = statsById[it.counterpart];
-    const name = (s && s.name) || it.fallbackName || '—';
+    const name = escHtml((s && s.name) || it.fallbackName || '—');
     const statsHtml = s
       ? `<div class="fam-stats"><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
       : '';
+    // Событие дня — только СЕГОДНЯШНЕЕ (getSummary() в habbittracker.js кладёт в day_event только
+    // dashState.dayEvents[todayKey()]), пусто — строку не показываем вообще.
+    const dayEventHtml = (s && s.day_event) ? `<div class="fam-day-event">${escHtml(s.day_event)}</div>` : '';
     return `<div class="fam-friend">
-      <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}</div>
+      <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}${dayEventHtml}</div>
       <button class="fam-fam-btn fam-fam-remove" data-id="${it.id}" data-action="remove" type="button">Удалить из семьи</button>
     </div>`;
   }).join('');
