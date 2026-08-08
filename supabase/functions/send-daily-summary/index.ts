@@ -35,28 +35,50 @@ function localDateKey(timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
 }
 
+// «3 августа, понедельник» — тот же формат/те же массивы, что у formatFullDate в habbittracker.js
+// (см. FULL_MONTH_NAMES/FULL_WD_NAMES там), юзер попросил указывать день и дату в самой сводке.
+// Парсим todayKey руками (new Date('YYYY-MM-DD') читается как UTC-полночь — с датой в других
+// таймзонах может съехать на день, тут просто split по частям, без учёта TZ вообще).
+const FULL_MONTH_NAMES = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const FULL_WD_NAMES = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+function formatFullDate(dateKey: string): string {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return `${d} ${FULL_MONTH_NAMES[dt.getMonth()]}, ${FULL_WD_NAMES[dt.getDay()]}`;
+}
+
+// Экранирование для Telegram parse_mode:'HTML' — только &/</> обязательны (см. доки Bot API),
+// без этого свободный текст юзера (название привычки/еды, событие дня и т.п.) с символами
+// < > & сломал бы разметку письма или вообще уронил бы отправку целиком.
+function escHtml(s: unknown): string {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // Собирает читаемый текст сводки из СЕГОДНЯШНЕГО среза dashState. Возвращает null, если сегодня
-// вообще ничего не трогал — пустой отчёт слать не имеет смысла (см. вызов ниже).
+// вообще ничего не трогал — пустой отчёт слать не имеет смысла (см. вызов ниже). Заголовки блоков
+// — жирным (HTML <b>, см. parse_mode в sendMessage ниже) + эмодзи, юзер попросил визуально
+// разделить секции. Сами заголовки — статичные строки без пользовательского ввода, escHtml им не
+// нужен; экранируем только то, что реально пришло из dashState.
 function buildSummaryText(state: AnyState, todayKey: string): string | null {
   const sections: string[] = [];
 
-  // Привычки, отмеченные сегодня (dashState.history[date][uid] = true)
+  // Задачи, отмеченные сегодня (dashState.history[date][uid] = true)
   const historyToday = (state.history || {})[todayKey] || {};
   const habitLines = (state.habits || [])
     .filter((h: AnyState) => historyToday[h.uid])
-    .map((h: AnyState) => `✅ ${h.text}`);
-  if (habitLines.length) sections.push('Привычки:\n' + habitLines.join('\n'));
+    .map((h: AnyState) => `✅ ${escHtml(h.text)}`);
+  if (habitLines.length) sections.push('<b>📋 Задачи:</b>\n' + habitLines.join('\n'));
 
   // Разовые задачи на сегодня (dashState.habits с type:'oneTime' и date===todayKey, см.
   // renderTaskDayView/openNewHabitModal в habbittracker.js) — юзер попросил слать их отдельным
   // списком, ОБА исхода: выполненные (✅) и невыполненные (тег #невыполнено — тем же тегом
-  // помечены и невыполненные «Задачи дня» ниже). У обычных регулярных привычек (раздел
-  // «Привычки» выше) нет понятия «дедлайн на сегодня», поэтому «невыполнено» для них не считаем —
-  // только для разовых, у которых date жёстко привязан к конкретному дню.
+  // помечены и невыполненные «Задачи дня» ниже). У обычных регулярных задач (раздел «Задачи»
+  // выше) нет понятия «дедлайн на сегодня», поэтому «невыполнено» для них не считаем — только
+  // для разовых, у которых date жёстко привязан к конкретному дню.
   const oneTimeToday = (state.habits || []).filter((h: AnyState) => h.type === 'oneTime' && h.date === todayKey);
   if (oneTimeToday.length) {
-    const oneTimeLines = oneTimeToday.map((h: AnyState) => (historyToday[h.uid] ? `✅ ${h.text}` : `#невыполнено ${h.text}`));
-    sections.push('Разовые задачи:\n' + oneTimeLines.join('\n'));
+    const oneTimeLines = oneTimeToday.map((h: AnyState) => (historyToday[h.uid] ? `✅ ${escHtml(h.text)}` : `#невыполнено ${escHtml(h.text)}`));
+    sections.push('<b>📌 Разовые задачи:</b>\n' + oneTimeLines.join('\n'));
   }
 
   // Числовые метрики Pro mode (dashState.metricLog[date][metricId] = число)
@@ -65,23 +87,24 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
     .map((m: AnyState) => {
       const v = metricLogToday[m.id];
       if (v === undefined || v === null || v === '' || v === 0) return null;
-      return `${m.name}: ${v}${m.unit ? ' ' + m.unit : ''}`;
+      return `${escHtml(m.name)}: ${escHtml(v)}${m.unit ? ' ' + escHtml(m.unit) : ''}`;
     })
     .filter(Boolean);
-  if (metricLines.length) sections.push('Показатели:\n' + metricLines.join('\n'));
+  if (metricLines.length) sections.push('<b>📊 Показатели:</b>\n' + metricLines.join('\n'));
 
-  // Чек-ап дня (dashState.checkinHistory[date].morning)
+  // Чек-ап дня (dashState.checkinHistory[date].morning) — юзер попросил разбить построчно
+  // (раньше шло одной строкой через запятую).
   const morning = ((state.checkinHistory || {})[todayKey] || {}).morning;
   if (morning) {
     const parts: string[] = [];
-    if (morning.sleepTime) parts.push(`лёг в ${morning.sleepTime}`);
-    if (morning.wakeTime) parts.push(`встал в ${morning.wakeTime}`);
-    if (morning.extraSleepHours) parts.push(`+${morning.extraSleepHours} ч сна урывками`);
-    if (morning.mood) parts.push(`настроение ${morning.mood}/10`);
-    if (morning.sleepQuality) parts.push(`сон ${morning.sleepQuality}/10`);
-    if (morning.energy) parts.push(`энергия ${morning.energy}/10`);
-    if (morning.health) parts.push(`здоровье ${morning.health}/10`);
-    if (parts.length) sections.push('Чек-ап: ' + parts.join(', '));
+    if (morning.sleepTime) parts.push(`лёг в ${escHtml(morning.sleepTime)}`);
+    if (morning.wakeTime) parts.push(`встал в ${escHtml(morning.wakeTime)}`);
+    if (morning.extraSleepHours) parts.push(`+${escHtml(morning.extraSleepHours)} ч сна урывками`);
+    if (morning.mood) parts.push(`настроение ${escHtml(morning.mood)}/10`);
+    if (morning.sleepQuality) parts.push(`сон ${escHtml(morning.sleepQuality)}/10`);
+    if (morning.energy) parts.push(`энергия ${escHtml(morning.energy)}/10`);
+    if (morning.health) parts.push(`здоровье ${escHtml(morning.health)}/10`);
+    if (parts.length) sections.push('<b>🌙 Чек-ап:</b>\n' + parts.join('\n'));
   }
 
   // Питание (dashState.foodLog[date].{breakfast,lunch,dinner})
@@ -91,14 +114,14 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
     .map((id) => {
       const rec = foodToday[id];
       if (!rec || (!rec.time && !rec.text)) return null;
-      return `${mealNames[id]}${rec.time ? ` (${rec.time})` : ''}${rec.text ? `: ${rec.text}` : ''}`;
+      return `${mealNames[id]}${rec.time ? ` (${escHtml(rec.time)})` : ''}${rec.text ? `: ${escHtml(rec.text)}` : ''}`;
     })
     .filter(Boolean);
-  if (foodLines.length) sections.push('Питание:\n' + foodLines.join('\n'));
+  if (foodLines.length) sections.push('<b>🍽 Питание:</b>\n' + foodLines.join('\n'));
 
   // Событие дня (dashState.dayEvents[date])
   const dayEvent = (state.dayEvents || {})[todayKey];
-  if (dayEvent) sections.push(`Событие дня: ${dayEvent}`);
+  if (dayEvent) sections.push(`<b>🎉 Событие дня:</b>\n${escHtml(dayEvent)}`);
 
   // Задачи дня (dashState.dayTasks[date] = [{text, done}], см. getDayTasks в habbittracker.js —
   // старый формат единичного объекта без массива сюда почти не долетит, но на всякий случай тоже
@@ -107,12 +130,12 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
   const rawDayTasks = (state.dayTasks || {})[todayKey];
   const dayTasksToday: AnyState[] = Array.isArray(rawDayTasks) ? rawDayTasks : (rawDayTasks && rawDayTasks.text ? [rawDayTasks] : []);
   if (dayTasksToday.length) {
-    const taskLines = dayTasksToday.map((t) => (t.done ? `✅ ${t.text}` : `#невыполнено ${t.text}`));
-    sections.push('Задачи дня:\n' + taskLines.join('\n'));
+    const taskLines = dayTasksToday.map((t) => (t.done ? `✅ ${escHtml(t.text)}` : `#невыполнено ${escHtml(t.text)}`));
+    sections.push('<b>🎯 Задачи дня:</b>\n' + taskLines.join('\n'));
   }
 
   if (!sections.length) return null;
-  return 'Итоги дня:\n\n' + sections.join('\n\n');
+  return `<b>Итоги дня, ${formatFullDate(todayKey)}:</b>\n\n` + sections.join('\n\n');
 }
 
 Deno.serve(async (req) => {
@@ -146,6 +169,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             chat_id: row.telegram_id,
             text,
+            parse_mode: 'HTML', // заголовки блоков жирным + эмодзи (см. buildSummaryText/escHtml)
             reply_markup: {
               inline_keyboard: [[{ text: 'Открыть Live Life', web_app: { url: MINI_APP_URL } }]],
             },
