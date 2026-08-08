@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=38">
+    <link rel="stylesheet" href="habbittracker.css?v=39">
 </head>
 <body>
 
@@ -352,8 +352,11 @@
                     <div class="sub-msg" id="sub-msg"></div>
                 </div>
                 <!-- Семья — сразу под подпиской (юзер попросил поднять её сюда). Только принятые
-                     связи (см. loadFamily/auth.js), с живой статистикой друг друга. -->
-                <div class="fam-section">
+                     связи (см. loadFamily/auth.js), с живой статистикой друг друга. Отдельный
+                     модификатор fam-section-tight — меньший отступ именно от блока подписки
+                     (юзер попросил сильно сократить), вторая секция ниже (Приглашённые друзья)
+                     его не использует. -->
+                <div class="fam-section fam-section-tight">
                     <div class="fam-h">Семья</div>
                     <div class="fam-add">
                         <input type="text" id="fam-invite-input" class="auth-input" placeholder="ID близкого" maxlength="8" style="margin-bottom:0">
@@ -366,12 +369,12 @@
                      стоит прямо здесь же, рядом с текстом про бонус, а не отдельно. -->
                 <div class="bonus-section">
                     <div class="bonus-rule">+1 неделя Personal за каждого друга, который присоединится по твоей ссылке</div>
+                    <button class="auth-copy" id="prof-share" type="button">Поделиться ссылкой-приглашением</button>
                     <div class="bonus-stats">
                         <div class="bonus-stat"><span class="bonus-stat-value" id="bonus-friends-count">0</span><span class="bonus-stat-label">друзей приглашено</span></div>
                         <div class="bonus-stat"><span class="bonus-stat-value" id="bonus-days-count">0</span><span class="bonus-stat-label">бесплатных дней</span></div>
                     </div>
                     <div class="auth-row"><span class="auth-k">Твой ID для приглашений</span><span class="auth-v auth-id" id="prof-id">—</span></div>
-                    <button class="auth-copy" id="prof-share" type="button">Поделиться ссылкой-приглашением</button>
                     <button class="auth-copy" id="prof-copy" type="button">Скопировать ID</button>
                 </div>
                 <!-- Приглашённые друзья — самый низ (юзер попросил): те, кто ещё не принят/не

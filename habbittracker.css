@@ -834,7 +834,7 @@ canvas { width: 100%; height: 150px; }
    .auth-id { font-weight: 700; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
    .auth-copy { width: 100%; height: 38px; border: 1px solid #e0e0e0; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 16px; }
    .auth-copy:hover { border-color: #111; }
-   .prof-name-label { font-size: 12px; color: #999; margin: 14px 0 6px; }
+   .prof-name-label { font-size: 12px; color: #999; margin: 6px 0 4px; }
    .prof-name-row { display: flex; gap: 8px; }
    .prof-name-row .auth-input { flex: 1; }
    .prof-name-save { flex: 0 0 auto; height: 40px; padding: 0 14px; border: none; background: #111; color: #fff; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; }
@@ -843,7 +843,7 @@ canvas { width: 100%; height: 150px; }
    .auth-logout { width: 100%; height: 38px; border: none; background: none; color: #999; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 6px; }
    .auth-logout:hover { color: #111; text-decoration: underline; }
    /* Подписка */
-   .sub-section { margin: 18px 0; border-top: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1; padding: 4px 0 16px; }
+   .sub-section { margin: 18px 0 6px; border-top: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1; padding: 4px 0 16px; }
    .sub-plans { display: flex; gap: 8px; margin-top: 10px; }
    .sub-plan-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border: 1px solid #e0e0e0; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
    .sub-plan-btn:hover { border-color: #bbb; }
@@ -861,10 +861,13 @@ canvas { width: 100%; height: 150px; }
    .bonus-stat { flex: 1; text-align: center; background: #f7f7f7; border-radius: 8px; padding: 10px 6px; }
    .bonus-stat-value { display: block; font-size: 20px; font-weight: 700; color: #111; }
    .bonus-stat-label { display: block; font-size: 11px; color: #888; margin-top: 2px; }
-   /* Семья — единый список «приглашённые друзья»: каждый — с кнопкой «Добавить/Удалить из
-      семьи» (см. auth.js renderInvitedFriends). Раньше здесь были два раздельных списка
-      (входящие на accept/decline + принятые) — объединены в один, см. HANDOFF.md Фаза 7. */
+   /* Семья (принятые, сразу под подпиской) и Приглашённые друзья (внизу профиля) — два
+      раздельных списка на общей разметке .fam-section, см. auth.js renderFamilyMembers/
+      renderPendingFriends и HANDOFF.md §44. */
    .fam-section { margin-top: 18px; border-top: 1px solid #f1f1f1; padding-top: 16px; }
+   /* Юзер попросил сильно сократить отступ именно между блоком подписки и «Семьёй» — второй
+      fam-section (Приглашённые друзья, ниже bonus-section) этот модификатор не получает. */
+   .fam-section.fam-section-tight { margin-top: 6px; padding-top: 8px; }
    .fam-add { display: flex; flex-direction: column; gap: 8px; }
    .fam-add .auth-input { text-transform: uppercase; }
    .fam-add .auth-input::placeholder { text-transform: none; }
