@@ -420,6 +420,7 @@ async function loadSubscription() {
   if (r === TIMED_OUT || !r.data) {
     $('sub-status').textContent = '—';
     window.hasActiveSubscription = false;
+    if (typeof window.exitPsychoModeIfUnsubscribed === 'function') window.exitPsychoModeIfUnsubscribed();
     return;
   }
   const s = r.data;
@@ -430,6 +431,10 @@ async function loadSubscription() {
   // (см. openProModePaywall). Не трогает free-триал/бонусные дни: это отдельный, более широкий
   // гейт на доступ ко всему приложению (см. computeAppAccess/applyAccess выше).
   window.hasActiveSubscription = s.status === 'active';
+  // Если Pro mode уже был включён, а подписка за это время истекла — выключаем режим (сами данные
+  // Pro mode не трогает, см. exitPsychoModeIfUnsubscribed в habbittracker.js), иначе юзер продолжал
+  // бы видеть Pro-контент мимо оплаты до следующей перезагрузки.
+  if (typeof window.exitPsychoModeIfUnsubscribed === 'function') window.exitPsychoModeIfUnsubscribed();
   const { hasAccess, daysLeft } = computeAppAccess(s);
   if (s.status === 'active') {
     // family_owner_id заполнен только у ЧЛЕНОВ семьи (не у самого покупателя, см.

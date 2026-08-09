@@ -649,8 +649,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const todayData = history[today] || {};
         
         if (morningBtn) {
-            // В Pro mode кнопка скрыта целиком (см. syncProModeTab) — пульс-напоминание про
-            // незаполненный чек-ап тут неуместен.
+            // В Pro mode кнопка «Чек-ап» видна (юзер попросил не прятать её, см. HANDOFF.md), но
+            // пульс-напоминание про незаполненный чек-ап там всё равно не показываем — Pro mode
+            // про свои числовые показатели, не про чек-ап.
             const hasMorning = todayData.morning && Object.keys(todayData.morning).length > 0;
             morningBtn.classList.toggle('pulse', !hasMorning && !dashState.psychoMode);
         }
@@ -679,16 +680,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const DOTS = '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>';
     const LOCK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
     const CALENDAR_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>';
-    // Pro mode прячет кнопку «Чек-ап» целиком (юзер попросил убрать чек-ап из Pro mode) — раньше
-    // на её месте подменой показывались мини-игры (см. HANDOFF.md §41/43), но это был ЕДИНСТВЕННЫЙ
-    // способ дотянуться до игр во всём приложении (родная кнопка «Игры» и так навсегда скрыта
-    // флагом FEATURES.games=false, см. DOMContentLoaded) — юзер решил, что игр в Pro mode быть не
-    // должно совсем, даже такой ценой. Кнопка (#btn-morning) просто прячется/показывается,
-    // содержимое/маршрут больше не подменяются.
-    function syncProModeTab() {
-        const btn = document.getElementById('btn-morning');
-        if (btn) btn.style.display = dashState.psychoMode ? 'none' : '';
-    }
 
     // «Задачи»/«Питание» существуют ДВУМЯ отдельными кнопками — base и Pro (последние с боковой
     // полоской «PRO MODE», см. .vb-promode-label в CSS и разметку в index.html). Юзер отказался от
@@ -759,7 +750,6 @@ document.addEventListener('DOMContentLoaded', () => {
         introScreen.style.display = 'none';
         dashboardScreen.classList.add('visible');
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
-        syncProModeTab();
         switchView('month'); // «Задачи» (бывший «Месяц») — теперь основная вкладка, см. HANDOFF.md §15
         updateProgressUI();
         startReminderChecker();
@@ -1521,7 +1511,6 @@ document.addEventListener('DOMContentLoaded', () => {
         dashState.psychoMode = on;
         saveProgress();
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
-        syncProModeTab();
     }
     function setPsychoMode(on) {
         applyPsychoModeState(on);
@@ -1529,6 +1518,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // вкладке «Задачи» (renderPsychoDay/renderPsychoMonth, см. renderMonthView).
         switchView('month');
     }
+
+    // Данные Pro mode (dashState.metrics/metricLog) НЕ удаляются с истечением подписки — они те
+    // же поля dashState, что и всё остальное, сохраняются в localStorage/облако тем же
+    // saveProgress(), что и привычки/чек-ап. Подписка гейтит только ДОСТУП к просмотру/входу в
+    // режим, не сами данные — вернувшись, юзер увидит их как были.
+    // Но если dashState.psychoMode уже был true (юзер включил Pro mode, пока подписка была
+    // активна), а подписка кончилась ПОКА приложение открыто (например, сессия висит дольше
+    // оплаченного периода) — без этой проверки экран продолжал бы показывать Pro-контент мимо
+    // оплаты: клик по Pro-кнопке блокируется (см. обработчик .view-btn), а уже включённый режим —
+    // нет. Дёргается из auth.js при каждом обновлении статуса подписки.
+    window.exitPsychoModeIfUnsubscribed = function () {
+        if (!window.hasActiveSubscription && dashState.psychoMode) setPsychoMode(false);
+    };
 
     function renderDayView() {
         const normal = document.getElementById('day-normal');
@@ -3064,10 +3066,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = document.getElementById('training-games-container');
         if (!container) return;
         // #view-training сейчас недостижим из таб-бара вообще (родная кнопка «Игры» скрыта
-        // FEATURES.games=false, а Pro mode больше не подменяет собой «Чек-ап» на неё, см.
-        // syncProModeTab/HANDOFF.md §43) — код/данные не удаляем, только прячем UI, как и с
-        // остальными фиче-флагами. allUnlocked оставлен на случай возврата фичи: доступ и так был
-        // бы за платной подпиской, левел-гейт был бы не нужен.
+        // FEATURES.games=false, а Pro mode больше не имеет своего входа в игры, см. HANDOFF.md
+        // §43) — код/данные не удаляем, только прячем UI, как и с остальными фиче-флагами.
+        // allUnlocked оставлен на случай возврата фичи: доступ и так был бы за платной подпиской,
+        // левел-гейт был бы не нужен.
         const allUnlocked = dashState.psychoMode;
         if (!allUnlocked) checkGameUnlock(); // если есть невыбранная разблокировка — предложить выбор
         const cards = GAME_ORDER.map(g => {
