@@ -420,21 +420,16 @@ async function loadSubscription() {
   if (r === TIMED_OUT || !r.data) {
     $('sub-status').textContent = '—';
     window.hasActiveSubscription = false;
-    if (typeof window.syncPromodeButtons === 'function') window.syncPromodeButtons();
     return;
   }
   const s = r.data;
   window.lastSubscription = s;
   const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '';
-  // Pro mode (habbittracker.js) читает этот флаг напрямую — активная подписка (любой план)
-  // снимает пейволл с тумблера. Не трогает free-триал/бонусные дни: это отдельный, более широкий
+  // Pro mode (habbittracker.js) читает этот флаг напрямую — активная подписка (любой план) пускает
+  // в режим по клику на Pro-кнопку «Задачи»/«Питание», без неё та же кнопка открывает пейволл
+  // (см. openProModePaywall). Не трогает free-триал/бонусные дни: это отдельный, более широкий
   // гейт на доступ ко всему приложению (см. computeAppAccess/applyAccess выше).
   window.hasActiveSubscription = s.status === 'active';
-  // «Задачи»/«Питание» подменяют собой отдельный тумблер Pro mode, пока есть активная подписка
-  // (см. syncPromodeButtons в habbittracker.js) — статус подписки меняется асинхронно после того,
-  // как дашборд уже отрисован, поэтому дёргаем пересчёт явно, а не полагаемся на то, что кто-то
-  // ещё вызовет syncProModeTab() к этому моменту.
-  if (typeof window.syncPromodeButtons === 'function') window.syncPromodeButtons();
   const { hasAccess, daysLeft } = computeAppAccess(s);
   if (s.status === 'active') {
     // family_owner_id заполнен только у ЧЛЕНОВ семьи (не у самого покупателя, см.

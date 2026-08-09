@@ -273,9 +273,14 @@
    .vb-ico svg { width: 19px; height: 19px; }
    .vb-txt { font-size: 10px; letter-spacing: 0.2px; white-space: nowrap; }
    /* Боковая полоска Pro-вариантов кнопок «Задачи»/«Питание» (#btn-tasks-pro / #btn-food-pro, см.
-      index.html — они видны только при активной подписке, см. syncPromodeButtons). Правая 20%
-      кнопки: текст «PRO MODE» в две строки, повёрнутый на 90°. Правило юзера: чёрный фон →
-      золотые буквы, белый фон → синие; и ОБЕ кнопки всегда одного цвета между собой.
+      index.html — видны ВСЕГДА, кликом без подписки открывают пейволл, см. openProModePaywall в
+      habbittracker.js). Текст «PRO MODE» в две строки, повёрнутый на 90°. Правило юзера: чёрный
+      фон → золотые буквы, белый фон → синие; и ОБЕ кнопки всегда одного цвета между собой.
+      ФИКСИРОВАННАЯ ширина в px (не %) — юзер поймал баг «кнопки опять разных размеров»: width в %
+      на absolute-элементе внутри flex-item резолвится не всегда предсказуемо между браузерами
+      (особенно на десктопе, где .view-btn ещё и упирается в max-width), из-за чего сама полоска
+      могла посчитаться по-разному на разных кнопках. px убирает эту неопределённость полностью —
+      результат одинаков независимо от итоговой ширины кнопки.
       Раскраска задана ровно одна (чёрный фон + золото) и НЕ зависит от .active — раньше зависела,
       и из-за этого полоски рассинхронизировались: активная вкладка чёрная → её полоска была белой
       с синим, а соседняя неактивная (белая) — чёрной с золотом, т.е. два разных цвета
@@ -292,7 +297,7 @@
    .vb-promode-label {
        position: absolute;
        top: 0; right: 0; bottom: 0;
-       width: 20%;
+       width: 17px;
        display: flex;
        align-items: center;
        justify-content: center;
@@ -300,18 +305,18 @@
        background: #111;
        border-left: 1px solid rgba(255, 255, 255, 0.25);
        color: #d4af37;
-       font-size: 7px;
+       font-size: 6.5px;
        font-weight: 700;
-       letter-spacing: 0.3px;
-       line-height: 1.1;
+       letter-spacing: 0.2px;
+       line-height: 1.05;
        text-align: center;
    }
    .vb-promode-label > span { display: block; transform: rotate(-90deg); white-space: nowrap; }
    /* Подпись Pro-кнопки центрируем по СВОБОДНОЙ части (без полоски): на узких экранах пять кнопок
-      в ряд оставляют каждой ~60px, и «Питание», отцентрированное по всей ширине, заезжало бы
+      в ряд оставляют каждой ~55-65px, и «Питание», отцентрированное по всей ширине, заезжало бы
       правым краем под непрозрачную полоску. box-sizing:border-box глобальный (см. верх файла),
-      поэтому padding не расширяет кнопку. */
-   .view-btn[data-mode="pro"] { padding-right: calc(20% + 3px); }
+      поэтому padding не расширяет саму кнопку — все пять остаются одной ширины. */
+   .view-btn[data-mode="pro"] { padding-right: 20px; }
    .view-btn:hover { border-color: #bbb; color: #333; }
    .view-btn.active {
        background: #111;
@@ -666,20 +671,8 @@ canvas { width: 100%; height: 150px; }
    .area-chip:hover { border-color: #111; color: #111; }
    .area-chip.sel { background: #111; color: #fff; border-color: #111; }
 
-   /* =========================================
-      ТУМБЛЕР PSYCHO MODE
-      ========================================= */
-   #psycho-toggle { display: flex; align-items: center; gap: 10px; width: fit-content; margin: 0 auto 8px; padding: 6px 8px 6px 16px; background: #f5f5f5; border: 1px solid #ececec; border-radius: 999px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
-   #psycho-toggle:hover { border-color: #ddd; }
-   .pt-label { font-size: 12px; color: #777; letter-spacing: 0.3px; }
-   #psycho-toggle.on .pt-label { color: #111; font-weight: 500; }
-   .pt-switch { width: 34px; height: 20px; border-radius: 999px; background: #cfcfcf; position: relative; transition: background 0.2s; flex: 0 0 auto; }
-   .pt-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.2s; }
-   #psycho-toggle.on .pt-switch { background: #111; }
-   #psycho-toggle.on .pt-switch::after { left: 16px; }
-   .pt-lock { display: inline-flex; color: #aaa; }
-   .pt-lock svg { display: block; }
-   /* Пейволл Pro mode */
+   /* Пейволл Pro mode — открывается кликом по закрытой Pro-кнопке «Задачи»/«Питание» в таб-баре,
+      отдельного тумблера (.pt-label/.pt-switch/.pt-lock) больше нет, см. HANDOFF.md. */
    .promode-preview { border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; filter: blur(1.2px); opacity: 0.8; user-select: none; pointer-events: none; }
    .promode-preview-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid #f3f3f3; }
    .promode-preview-row:last-child { border-bottom: none; }
@@ -986,14 +979,18 @@ canvas { width: 100%; height: 150px; }
       ========================================= */
    @media (max-width: 600px) {
        #dashboard-screen { padding: 22px; }
-       .dash-bottom-bar { padding-left: 22px; padding-right: 22px; }
+       /* Таб-бару даём почти всю ширину экрана: кнопок стало пять (см. HANDOFF.md §62), и прежние
+          22px по краям + 2px у .view-switcher + gap 4px съедали ~64px, из-за чего на 360px каждой
+          кнопке оставалось ~59px и подписи «Питание» упирались в боковую полоску Pro. */
+       .dash-bottom-bar { padding-left: 8px; padding-right: 8px; }
        #dash-identity-name { font-size: 26px; }
        .level-value { font-size: 22px; }
        .dash-habit-text { font-size: 17px; }
        .dash-habit-xp { font-size: 11px; }
-       .view-switcher { max-width: 100%; gap: 4px; padding: 0 2px; }
-       .view-btn { padding: 7px 2px; border-radius: 8px; }
+       .view-switcher { max-width: 100%; gap: 3px; padding: 0; }
+       .view-btn { padding: 7px 1px; border-radius: 8px; max-width: none; }
        .vb-ico { font-size: 16px; }
+       .vb-ico svg { width: 17px; height: 17px; }
        .vb-txt { font-size: 9px; }
        .scale-btn { width: 22px; height: 22px; font-size: 9px; }
        .level-up-wolf { width: 350px; }

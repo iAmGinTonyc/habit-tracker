@@ -3,9 +3,6 @@ window.selectedIdentity = null;
 // === FEATURE FLAGS (упрощение продукта — прячем UI/логику, НЕ удаляем код и данные.
 // Откат = поменять значение на true. См. HANDOFF.md §15) ===
 const FEATURES = {
-    psychoMode: true, // «Pro mode» (бывший psycho mode) — тумблер снова виден всем, но под замком
-    // подписки: клик без активной подписки открывает пейволл (openProModePaywall), а не сам режим.
-    // false тут полностью скрыл бы тумблер целиком, как раньше.
     games: false,
     xpLevels: false,
     legacyCheckinFields: false, // старые поля утро/вечер сверх «качество сна + настроение», и вкладка «Вечер»
@@ -34,10 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadingOverlay = document.getElementById('loading-overlay');
 
     // Применяем фиче-флаги: скрываем UI отключённых фич через style.display, код/данные не трогаем
-    if (!FEATURES.psychoMode) {
-        const el = document.getElementById('psycho-toggle');
-        if (el) el.style.display = 'none';
-    }
     if (!FEATURES.games) {
         const el = document.querySelector('.view-btn[data-view="training"]');
         if (el) el.style.display = 'none';
@@ -695,26 +688,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncProModeTab() {
         const btn = document.getElementById('btn-morning');
         if (btn) btn.style.display = dashState.psychoMode ? 'none' : '';
-        syncPromodeButtons();
     }
 
     // «Задачи»/«Питание» существуют ДВУМЯ отдельными кнопками — base и Pro (последние с боковой
     // полоской «PRO MODE», см. .vb-promode-label в CSS и разметку в index.html). Юзер отказался от
     // идеи совмещённой кнопки-переключателя (см. HANDOFF.md §58–61): никакого тумблинга по клику,
-    // режим выбирается явно — какую кнопку нажал, тот режим и открылся (сама разметка полосок
-    // теперь статична в HTML, генерировать её из JS больше не нужно).
-    // Здесь остаётся только видимость: Pro-кнопки показываются лишь при активной подписке, без неё
-    // на их месте — прежний тумблер #psycho-toggle с замком, открывающий пейволл.
-    function syncPromodeButtons() {
-        const isPro = !!window.hasActiveSubscription;
-        const toggle = document.getElementById('psycho-toggle');
-        if (toggle) toggle.style.display = isPro ? 'none' : '';
-        ['btn-tasks-pro', 'btn-food-pro'].forEach(id => {
-            const btn = document.getElementById(id);
-            if (btn) btn.style.display = isPro ? '' : 'none';
-        });
-    }
-    window.syncPromodeButtons = syncPromodeButtons; // auth.js дёргает при смене статуса подписки
+    // режим выбирается явно — какую кнопку нажал, тот режим и открылся. Pro-кнопки видны ВСЕГДА,
+    // не только с подпиской (юзер: «в каждой из двух закрытых вкладок показать детали») — без
+    // подписки клик по ним открывает превью-пейволл конкретно этой вкладки вместо входа в режим
+    // (см. обработчик .view-btn ниже и openProModePaywall(kind)). Отдельного тумблера-замка
+    // (#psycho-toggle) больше нет — юзер попросил убрать его целиком, сами Pro-кнопки играют его
+    // роль. Никакой отдельной синхронизации видимости этим кнопкам не нужно.
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
@@ -774,8 +758,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function showDashboard() {
         introScreen.style.display = 'none';
         dashboardScreen.classList.add('visible');
-        const pt = document.getElementById('psycho-toggle');
-        if (pt) { pt.classList.toggle('on', !!dashState.psychoMode); pt.setAttribute('aria-pressed', dashState.psychoMode ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
         syncProModeTab();
         switchView('month'); // «Задачи» (бывший «Месяц») — теперь основная вкладка, см. HANDOFF.md §15
@@ -1533,13 +1515,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Общая часть переключения режима БЕЗ принудительной навигации — нужна отдельно от
     // setPsychoMode() для Pro-кнопок «Задачи»/«Питание» (см. обработчик .view-btn ниже): они сами
     // ведут на СВОЮ вкладку, а setPsychoMode всегда жёстко уводит на 'month', из-за чего клик по
-    // Pro-«Питание» неожиданно переносил бы на «Задачи». Старый тумблер #psycho-toggle (показыва-
-    // ется только без подписки) по-прежнему зовёт setPsychoMode — ему переход на 'month' нужен.
+    // Pro-«Питание» неожиданно переносил бы на «Задачи». setPsychoMode(false) отдельно зовёт
+    // кнопка «?» в шапке (сбрасывает Pro mode перед туром) — ей переход на 'month' нужен.
     function applyPsychoModeState(on) {
         dashState.psychoMode = on;
         saveProgress();
-        const t = document.getElementById('psycho-toggle');
-        if (t) { t.classList.toggle('on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
         syncProModeTab();
     }
@@ -2168,7 +2148,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const historyBtn = document.getElementById('history-btn-food');
         if (historyBtn) historyBtn.addEventListener('click', (e) => {
             e.preventDefault(); e.stopPropagation();
-            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall(); return; }
+            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall('food'); return; }
             if (isHistory) { currentFoodHistoryDate = null; renderFood(); return; }
             openCalendar({
                 value: viewDate,
@@ -2315,7 +2295,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const historyBtn = document.getElementById('history-btn-food');
         if (historyBtn) historyBtn.addEventListener('click', (e) => {
             e.preventDefault(); e.stopPropagation();
-            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall(); return; }
+            if (!isPro) { if (typeof openProModePaywall === 'function') openProModePaywall('food'); return; }
             if (isHistory) { currentFoodHistoryDate = null; renderFood(); return; }
             openCalendar({
                 value: viewDate,
@@ -2600,7 +2580,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { target: () => document.querySelector('.dm-toggle'), taskViewMode: 'day', text: 'Переключай на «Месяц», чтобы увидеть прогресс за месяц и историю по дням.' },
         { target: () => document.querySelector('.hm-row-head'), taskViewMode: 'month', text: 'Нажми на задачу — откроется календарь, где отмечены выполненные дни. Можно поправить и задним числом.', requiresHabits: true },
         { target: () => document.getElementById('life-wheel-month'), taskViewMode: 'month', text: 'Привяжи задачи к сферам жизни (в «⋯») — колесо заполнится и покажет баланс.', feature: 'lifeWheel' },
-        { target: () => document.getElementById('psycho-toggle'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка задач. Доступно только по платной подписке (не по бесплатным дням).', feature: 'psychoMode' },
+        { target: () => document.getElementById('btn-tasks-pro'), text: 'Pro mode — числовые показатели дня (км, сон, кофе…) вместо списка задач. Доступно только по платной подписке (не по бесплатным дням).' },
         { target: () => document.querySelector('.view-btn[data-view="training"]'), text: 'Игры — мини-игры, разблокируются по мере роста уровня.', feature: 'games' },
         { target: () => document.getElementById('btn-morning'), switchView: 'morning', text: 'Чек-ап — сон, настроение, энергия и здоровье шкалами 1–10, плюс графики за месяц.' },
         { target: () => document.getElementById('btn-evening'), switchView: 'evening', text: 'Вечер — итог дня, благодарность и что улучшить завтра.', feature: 'legacyCheckinFields' },
@@ -3470,9 +3450,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const mode = btn.dataset.mode;
             if (mode) {
                 const wantPro = mode === 'pro';
-                // Подписка могла закончиться, а кнопка ещё не спрятаться (см. syncPromodeButtons) —
-                // не пускаем в Pro mode мимо оплаты, показываем пейволл, как и старый тумблер.
-                if (wantPro && !window.hasActiveSubscription) { openProModePaywall(); return; }
+                // Pro-кнопки видны всегда, не только с подпиской (юзер: «в каждой из двух закрытых
+                // вкладок показать детали») — без подписки клик открывает превью-пейволл ИМЕННО
+                // этой вкладки вместо входа в режим (не общий, а под конкретное содержимое —
+                // 'tasks' для «Задачи», 'food' для «Питание», см. openProModePaywall(kind)).
+                if (wantPro && !window.hasActiveSubscription) {
+                    openProModePaywall(btn.dataset.view === 'food' ? 'food' : 'tasks');
+                    return;
+                }
                 if (wantPro !== !!dashState.psychoMode) applyPsychoModeState(wantPro);
             }
             switchView(btn.dataset.view);
@@ -3636,17 +3621,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
     }
 
-    // === ТУМБЛЕР PRO MODE (бывший psycho mode) — под замком подписки, см. HANDOFF.md §15 ===
-    const promodeLockIcon = document.getElementById('promode-lock-icon');
-    if (promodeLockIcon) promodeLockIcon.innerHTML = LOCK;
-    const psychoToggleEl = document.getElementById('psycho-toggle');
-    if (psychoToggleEl) psychoToggleEl.addEventListener('click', () => {
-        if (window.hasActiveSubscription) { setPsychoMode(!dashState.psychoMode); return; }
-        openProModePaywall();
-    });
-    function openProModePaywall() {
+    // === ПЕЙВОЛЛ PRO MODE — открывается кликом по закрытой Pro-кнопке «Задачи»/«Питание» без
+    // подписки (см. обработчик .view-btn выше), отдельного тумблера-замка больше нет (юзер
+    // попросил убрать) — сами эти две кнопки в таб-баре и есть «закрытые вкладки». ===
+    // Превью/заголовок/описание — под конкретную вкладку (kind: 'tasks' | 'food'), а не общие —
+    // юзер: «в каждой из двух закрытых вкладок показать детали этих вкладок, как раньше было
+    // сделано только для pro mode задачи» (тот самый превью с км/сном/сигаретами уже был, но
+    // только один на все случаи — теперь у «Питание» свой, про калории).
+    const PROMODE_PREVIEWS = {
+        tasks: {
+            title: 'Pro mode — Задачи',
+            rows: [
+                ['км пробежал', '7.4 / 10 км'],
+                ['часов поспал', '7.5 / 8 ч'],
+                ['минут медитировал', '15 / 15 мин'],
+                ['сигарет скурил', '0 / 0 шт'],
+            ],
+            desc: 'Числовые показатели дня вместо списка задач — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.',
+        },
+        food: {
+            title: 'Pro mode — Питание',
+            rows: [
+                ['калории за день', '1450 / 2000 ккал'],
+                ['булочка с корицей', '350 ккал'],
+                ['капучино 350мл', '140 ккал'],
+            ],
+            desc: 'Счётчик калорий за день с поиском по базе продуктов вместо простого времени приёма пищи — заносишь, что съел, видно сумму и цель на день.',
+        },
+    };
+    function openProModePaywall(kind) {
         const m = document.getElementById('promode-paywall-modal');
-        if (m) m.classList.add('active');
+        if (!m) return;
+        const cfg = PROMODE_PREVIEWS[kind] || PROMODE_PREVIEWS.tasks;
+        const titleEl = document.getElementById('promode-modal-title');
+        const previewEl = document.getElementById('promode-preview');
+        const descEl = document.getElementById('promode-desc');
+        if (titleEl) titleEl.textContent = cfg.title;
+        if (previewEl) previewEl.innerHTML = cfg.rows.map(([label, val]) => `<div class="promode-preview-row"><span>${label}</span><b>${val}</b></div>`).join('');
+        if (descEl) descEl.textContent = cfg.desc;
+        m.classList.add('active');
         updatePromodeFamilyButton();
     }
     function closeProModePaywall() {

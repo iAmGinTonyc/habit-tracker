@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=50">
+    <link rel="stylesheet" href="habbittracker.css?v=51">
 </head>
 <body>
 
@@ -178,23 +178,16 @@
 
         <!-- НИЖНИЙ КЛАСТЕР: тумблер + таб-бар + прогресс — ЗАФИКСИРОВАН снизу экрана (мобильная адаптация) -->
         <div class="dash-bottom-bar" id="dash-bottom-bar">
-            <!-- ТУМБЛЕР PSYCHO MODE -->
-            <button id="psycho-toggle" type="button" aria-pressed="false">
-                <span class="pt-label">Pro mode</span>
-                <span class="pt-lock" id="promode-lock-icon"></span>
-                <span class="pt-switch" aria-hidden="true"></span>
-            </button>
-
             <!-- НИЖНИЙ ТАБ-БАР -->
             <div class="view-switcher">
                 <button class="view-btn" data-view="habits"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 5.5l1 1 1.6-1.7M4 11.5l1 1 1.6-1.7M4 17.5l1 1 1.6-1.7"/></svg></span><span class="vb-txt">День</span></button>
                 <!-- «Задачи» и «Питание» — ПО ДВЕ кнопки: обычная (base mode) и Pro (с боковой
                      полоской «PRO MODE»). Юзер отказался от совмещённых кнопок-переключателей
-                     (см. HANDOFF.md §58–61): режим больше не «тумблерится» кликом по той же
-                     кнопке, а выбирается явно — какую кнопку нажал, в том режиме и открылось.
-                     data-mode — какой режим включает кнопка (см. wireViewButtons/switchView в
-                     habbittracker.js); Pro-кнопки видны только при активной подписке
-                     (syncPromodeButtons), без неё их место занимает старый тумблер с замком. -->
+                     (см. HANDOFF.md §58–61) и от отдельного тумблера-замка (#psycho-toggle,
+                     удалён целиком) — сами Pro-кнопки теперь и есть «закрытые вкладки»: видны
+                     ВСЕГДА (не только с подпиской), а без подписки клик открывает превью-пейволл
+                     именно этой вкладки вместо входа в режим (см. openProModePaywall(kind) в
+                     habbittracker.js). data-mode — какой режим задаёт кнопка. -->
                 <button class="view-btn active" data-view="month" data-mode="base" id="btn-tasks"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></span><span class="vb-txt">Задачи</span></button>
                 <button class="view-btn" data-view="month" data-mode="pro" id="btn-tasks-pro"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></span><span class="vb-txt">Задачи</span><span class="vb-promode-label"><span>PRO<br>MODE</span></span></button>
                 <button class="view-btn" data-view="training"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span><span class="vb-txt">Игры</span></button>
@@ -230,18 +223,21 @@
             </div>
         </div>
 
-        <!-- МОДАЛКА: ПЕЙВОЛЛ PRO MODE — клик по тумблеру без активной подписки, см. HANDOFF.md §15 -->
+        <!-- МОДАЛКА: ПЕЙВОЛЛ PRO MODE — клик по закрытой Pro-вкладке («Задачи»/«Питание») без
+             активной подписки, см. openProModePaywall(kind) в habbittracker.js. Превью/описание/
+             заголовок подставляются под конкретную вкладку — заготовка ниже (rows/desc про
+             «Задачи») просто дефолт на случай, если JS ещё не подставил свой набор. -->
         <div id="promode-paywall-modal" class="habit-settings-modal">
             <div class="habit-settings-content">
-                <div class="habit-settings-header"><h3>Pro mode</h3><button class="habit-settings-close" id="promode-close">✕</button></div>
+                <div class="habit-settings-header"><h3 id="promode-modal-title">Pro mode</h3><button class="habit-settings-close" id="promode-close">✕</button></div>
                 <div class="habit-settings-body">
-                    <div class="promode-preview" aria-hidden="true">
+                    <div class="promode-preview" id="promode-preview" aria-hidden="true">
                         <div class="promode-preview-row"><span>км пробежал</span><b>7.4 / 10 км</b></div>
                         <div class="promode-preview-row"><span>часов поспал</span><b>7.5 / 8 ч</b></div>
                         <div class="promode-preview-row"><span>минут медитировал</span><b>15 / 15 мин</b></div>
                         <div class="promode-preview-row"><span>сигарет скурил</span><b>0 / 0 шт</b></div>
                     </div>
-                    <p class="promode-desc">Числовые показатели дня вместо списка задач — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.</p>
+                    <p class="promode-desc" id="promode-desc">Числовые показатели дня вместо списка задач — своя метрика на всё, что хочешь считать: км, сон, кофе, деньги и что угодно ещё.</p>
                 </div>
                 <div class="habit-settings-footer promode-plans">
                     <button class="settings-btn save" id="promode-buy-personal-btn" type="button">Купить Personal — 250 Stars/мес</button>
@@ -414,7 +410,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=53"></script>
-    <script type="module" src="auth.js?v=42"></script>
+    <script src="habbittracker.js?v=54"></script>
+    <script type="module" src="auth.js?v=43"></script>
 </body>
 </html>
