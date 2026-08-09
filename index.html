@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=47">
+    <link rel="stylesheet" href="habbittracker.css?v=48">
 </head>
 <body>
 
@@ -190,9 +190,12 @@
                 <button class="view-btn" data-view="habits"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 5.5l1 1 1.6-1.7M4 11.5l1 1 1.6-1.7M4 17.5l1 1 1.6-1.7"/></svg></span><span class="vb-txt">День</span></button>
                 <button class="view-btn active" data-view="month" id="btn-tasks"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg></span><span class="vb-txt">Задачи</span></button>
                 <button class="view-btn" data-view="training"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span><span class="vb-txt">Игры</span></button>
-                <button class="view-btn" data-view="morning" id="btn-morning"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18M5.5 14a6.5 6.5 0 0 1 13 0"/><path d="M12 3.5V6M4.5 8L6 9.3M19.5 8L18 9.3"/></svg></span><span class="vb-txt">Чек-ап</span></button>
                 <button class="view-btn" data-view="evening" id="btn-evening"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4 7 7 0 1 0 20 14.5z"/></svg></span><span class="vb-txt">Вечер</span></button>
                 <button class="view-btn" data-view="food" id="btn-food"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v6a2.5 2.5 0 0 0 5 0V3"/><path d="M6.5 9v12"/><path d="M18 3c-1.6 0-2.8 2-2.8 5s1.2 4 2.8 4v9"/></svg></span><span class="vb-txt">Питание</span></button>
+                <!-- «Чек-ап» ПОСЛЕ «Питание» намеренно: скрытые фиче-флагами День/Игры/Вечер
+                     оставляли видимыми Задачи → Чек-ап → Питание, т.е. Чек-ап вклинивался между
+                     двумя кнопками с полоской Pro mode (юзер попросил убрать его оттуда). -->
+                <button class="view-btn" data-view="morning" id="btn-morning"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18h18M5.5 14a6.5 6.5 0 0 1 13 0"/><path d="M12 3.5V6M4.5 8L6 9.3M19.5 8L18 9.3"/></svg></span><span class="vb-txt">Чек-ап</span></button>
                 <button class="view-btn" data-view="pet"><span class="vb-ico"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6.2" cy="11" r="2"/><circle cx="10.4" cy="7.6" r="2"/><circle cx="15" cy="8.2" r="2"/><circle cx="18.4" cy="12" r="1.8"/><path d="M12.2 12.4c-2.5 0-4.3 1.9-4.3 3.9 0 1.7 1.4 2.6 3 2.6.9 0 1.1.3 1.3.3s.4-.3 1.3-.3c1.6 0 3-.9 3-2.6 0-2-1.8-3.9-4.3-3.9z"/></svg></span><span class="vb-txt">Питомец</span></button>
             </div>
 
@@ -399,7 +402,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=50"></script>
+    <script src="habbittracker.js?v=51"></script>
     <script type="module" src="auth.js?v=41"></script>
 </body>
 </html>
