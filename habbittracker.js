@@ -612,6 +612,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // центру»). Сбрасываем скролл к началу при каждом переключении вкладки.
         const dashContent = document.querySelector('.dash-content');
         if (dashContent) dashContent.scrollTop = 0;
+        // Смена вкладки уничтожает содержимое старой вместе со сфокусированным инпутом — момент,
+        // когда таб-бар мог остаться скрытым навсегда (см. initKeyboardAwareBottomBar).
+        if (window.syncBottomBar) window.syncBottomBar();
         renderTopNavSlot(''); // «Задачи» (viewName === 'month') сама заполнит слот заново ниже
         document.querySelectorAll('.dash-view').forEach(view => view.classList.remove('active'));
         const target = document.getElementById(`view-${viewName}`);
@@ -3000,10 +3003,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dashState.habits) return;
         const now = new Date();
         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const tKey = todayKey();
         dashState.habits.forEach(habit => {
-            if (!habit.completed && habit.reminderTime === currentTime) {
-                showReminderToast(habit); playReminderSound();
-            }
+            if (habit.reminderTime !== currentTime) return;
+            // Разовая задача привязана к своему дню — в остальные дни не напоминаем (та же правка,
+            // что и в supabase/functions/send-habit-reminders: раньше срабатывало ежедневно).
+            if (habit.type === 'oneTime' && habit.date !== tKey) return;
+            // Отметка о выполнении живёт в history[дата][uid] (см. isDone/toggleHabitForDate);
+            // habit.completed — рудимент старой модели, он давно никем не проставляется, поэтому
+            // условие `!habit.completed` было всегда истинным и тост прилетал даже по выполненной.
+            if (isDone(habit.uid, tKey)) return;
+            showReminderToast(habit); playReminderSound();
         });
     }
     function showReminderToast(habit) {
@@ -3769,12 +3779,88 @@ document.addEventListener('DOMContentLoaded', () => {
     (function initKeyboardAwareBottomBar() {
         const bottomBar = document.getElementById('dash-bottom-bar');
         if (!bottomBar) return;
+        // ВАЖНО (баг «кнопки снизу вообще пропали», репорт юзера со скриншотом): полагаться ТОЛЬКО
+        // на focusout нельзя. Если сфокусированный инпут УДАЛЯЕТСЯ из DOM (а это в приложении
+        // происходит постоянно: renderPsychoMetrics чистит list.innerHTML, initCheckins/
+        // loadHistoryData подменяют инпуты через replaceChild, renderDayEventAndTask/renderFood*
+        // перерисовывают контейнер целиком), браузер не гарантирует focusout по удалённому узлу —
+        // класс kb-hidden оставался навсегда, и таб-бар исчезал до перезагрузки приложения.
+        // Поэтому «показать обратно» вынесено в отдельную проверку по РЕАЛЬНОМУ состоянию
+        // (document.activeElement + наличие узла в документе) и дёргается из нескольких источников.
         const isTypable = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') &&
             !['checkbox', 'radio', 'button', 'submit', 'range'].includes(el.type);
+        const keyboardOpen = () => {
+            const el = document.activeElement;
+            return isTypable(el) && document.contains(el);
+        };
+        function syncBottomBar() { bottomBar.classList.toggle('kb-hidden', keyboardOpen()); }
+        window.syncBottomBar = syncBottomBar; // switchView зовёт её при каждой смене вкладки
+
         document.addEventListener('focusin', (e) => { if (isTypable(e.target)) bottomBar.classList.add('kb-hidden'); });
-        document.addEventListener('focusout', (e) => {
-            if (!isTypable(e.target)) return;
-            setTimeout(() => { if (!isTypable(document.activeElement)) bottomBar.classList.remove('kb-hidden'); }, 50);
+        document.addEventListener('focusout', () => setTimeout(syncBottomBar, 50));
+        // Страховки на случай, когда focusout не пришёл вовсе: закрытие клавиатуры меняет высоту
+        // visualViewport, любой тап по экрану — тоже подходящий момент перепроверить, а
+        // visibilitychange ловит возврат в приложение из фона.
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', syncBottomBar);
+        window.addEventListener('resize', syncBottomBar);
+        document.addEventListener('click', () => setTimeout(syncBottomBar, 50));
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncBottomBar(); });
+    })();
+
+    // === ПАНЕЛЬ ПОДТВЕРЖДЕНИЯ НАД ЦИФРОВОЙ КЛАВИАТУРОЙ ===
+    // У цифровых клавиатур на телефоне нет Enter/«Готово» (жалоба юзера: ввёл число и непонятно,
+    // чем подтвердить). Показываем над клавиатурой одну кнопку: «Принять изменения», если в поле
+    // что-то введено, и «Отменить ввод», если пусто.
+    // Подтверждение шлёт в поле НАСТОЯЩИЙ keydown Enter, а не просто blur: у части полей на Enter
+    // висит не только сохранение, но и действие (.metric-input добавляет значение, #cal-manual-kcal
+    // добавляет позицию, .goal-edit-input сохраняет цель) — blur там ничего бы не сделал. Поля с
+    // автосохранением по input от лишнего Enter не пострадают.
+    (function initNumericKeyboardBar() {
+        const bar = document.getElementById('kb-accept-bar');
+        const btn = document.getElementById('kb-accept-btn');
+        if (!bar || !btn) return;
+        // Только числовые поля — у обычных текстовых на клавиатуре Enter/«Готово» есть, там панель
+        // была бы лишней (см. enterkeyhint="done" в разметке).
+        const isNumeric = (el) => !!el && el.tagName === 'INPUT' &&
+            (el.type === 'number' || ['decimal', 'numeric'].includes((el.getAttribute('inputmode') || '').toLowerCase()));
+        let target = null;
+
+        function place() {
+            const vv = window.visualViewport;
+            // Высота, которую занимает клавиатура снизу: сколько «съел» visualViewport у окна.
+            const gap = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+            bar.style.bottom = gap + 'px';
+        }
+        function refresh() {
+            if (!target || !document.contains(target) || document.activeElement !== target) { hide(); return; }
+            const filled = String(target.value || '').trim() !== '';
+            btn.textContent = filled ? 'Принять изменения' : 'Отменить ввод';
+            bar.classList.toggle('is-cancel', !filled);
+            place();
+        }
+        function hide() { target = null; bar.classList.remove('show'); }
+
+        document.addEventListener('focusin', (e) => {
+            if (!isNumeric(e.target)) { hide(); return; }
+            target = e.target;
+            bar.classList.add('show');
+            refresh();
+        });
+        document.addEventListener('focusout', () => setTimeout(() => { if (!isNumeric(document.activeElement)) hide(); }, 50));
+        document.addEventListener('input', (e) => { if (e.target === target) refresh(); });
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { if (target) place(); });
+
+        // mousedown/touchstart, а не click: к моменту click поле уже потеряет фокус, и target
+        // обнулится обработчиком focusout выше. preventDefault не даёт фокусу уйти раньше времени.
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', () => {
+            const el = target;
+            if (!el) return;
+            if (String(el.value || '').trim() !== '') {
+                el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+            }
+            el.blur();
+            hide();
         });
     })();
 
@@ -3820,6 +3906,40 @@ document.addEventListener('DOMContentLoaded', () => {
             if (nextIdx < 0 || nextIdx >= order.length) return;
             switchView(order[nextIdx]);
         }, { passive: true });
+    })();
+
+    // === СТАРТОВЫЙ ЛОАДЕР ===
+    // Юзер попросил показывать «терпение — ключ к успеху…» на первой загрузке, пока приложение
+    // тянет облачное состояние (проверка бэкапа с других устройств, см. loadAppState в auth.js) —
+    // минимум ~3 секунды, дальше по факту загрузки. Раньше этот оверлей включался только по тапу
+    // по интро, и старт возвращающегося юзера выглядел как «пусто, потом резко дашборд».
+    // Три условия снятия, чтобы лоадер не завис ни при каком раскладе:
+    //   - облако ответило (markCloudStateSettled ниже — зовёт auth.js, в т.ч. при таймауте);
+    //   - прошёл минимум MIN_MS (иначе на быстрой сети лоадер моргнул бы на 100мс);
+    //   - истёк MAX_MS — жёсткий предохранитель, если auth.js вообще не догрузился (CDN/сеть).
+    // ТОЛЬКО для возвращающегося юзера (у которого уже есть сохранённые данные и который сразу
+    // попадает на дашборд, см. условие в init). У нового юзера показывать нечего: он ещё не
+    // залогинен, облака у него нет, markCloudStateSettled никогда не придёт — лоадер просто
+    // закрыл бы собой интро на все MAX_MS вместо «нажми на экран, чтобы начать».
+    (function initBootLoader() {
+        const saved = loadProgress();
+        if (!saved || !Array.isArray(saved.habits)) return;
+        const MIN_MS = 3000, MAX_MS = 8000;
+        const startedAt = Date.now();
+        let settled = false, done = false;
+        loadingOverlay.classList.add('active');
+        function finish() {
+            if (done) return;
+            done = true;
+            loadingOverlay.classList.remove('active');
+        }
+        function tryFinish() {
+            if (!settled) return;
+            setTimeout(finish, Math.max(0, MIN_MS - (Date.now() - startedAt)));
+        }
+        window.markCloudStateSettled = () => { settled = true; tryFinish(); };
+        // Не залогинен / не Telegram-контекст — облака не будет вовсе, ждать нечего.
+        setTimeout(() => { if (!settled) { settled = true; tryFinish(); } }, MAX_MS);
     })();
 
     // === ЗАПУСК ===

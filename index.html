@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=49">
+    <link rel="stylesheet" href="habbittracker.css?v=50">
 </head>
 <body>
 
@@ -406,9 +406,15 @@
         <div class="loading-text">терпение — ключ к успеху...</div>
     </div>
 
+    <!-- Панель над клавиатурой: у цифровых клавиатур на телефоне нет кнопки Enter/«Готово», из-за
+         чего непонятно, как подтвердить ввод (жалоба юзера). Показывается только при фокусе в
+         числовом поле, позиционируется по visualViewport вплотную над клавиатурой — см.
+         initNumericKeyboardBar в habbittracker.js. -->
+    <div id="kb-accept-bar" class="kb-accept-bar"><button type="button" id="kb-accept-btn"></button></div>
+
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=52"></script>
-    <script type="module" src="auth.js?v=41"></script>
+    <script src="habbittracker.js?v=53"></script>
+    <script type="module" src="auth.js?v=42"></script>
 </body>
 </html>

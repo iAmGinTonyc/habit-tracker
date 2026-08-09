@@ -141,6 +141,16 @@
    #dashboard-screen.visible { opacity: 1; pointer-events: auto; }
    .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 3000; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
    .loading-overlay.active { opacity: 1; pointer-events: auto; }
+
+   /* Панель подтверждения над цифровой клавиатурой (см. initNumericKeyboardBar в habbittracker.js).
+      position:fixed + bottom, который каждый раз пересчитывается по visualViewport — на iOS
+      fixed-элементы НЕ поднимаются над клавиатурой сами, поэтому позиция задаётся из JS.
+      z-index выше модалок (.habit-settings-modal — 2000), иначе панель пряталась бы под
+      открытой модалкой настроек, где как раз и живут числовые поля. */
+   .kb-accept-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4000; display: none; padding: 8px 12px; background: #fff; border-top: 1px solid #ececec; }
+   .kb-accept-bar.show { display: block; }
+   .kb-accept-bar button { width: 100%; height: 42px; border: none; border-radius: 9px; background: #111; color: #fff; font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+   .kb-accept-bar.is-cancel button { background: #fff; color: #666; border: 1px solid #e0e0e0; }
    .loading-text { font-size: 24px; font-style: italic; color: #666; animation: pulseText 2s infinite; }
    @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
    

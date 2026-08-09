@@ -326,9 +326,14 @@ let appStateChannel = null;
 async function loadAppState() {
   if (!me) return;
   const r = await withTimeout(sb.from('app_state').select('data, updated_at').eq('user_id', me).maybeSingle(), 4000);
-  if (r === TIMED_OUT) return;
+  // Стартовый лоадер (habbittracker.js) ждёт именно этот момент — «облако проверено»: дальше либо
+  // применяем чужую версию через applyCloudState (там своя перезагрузка страницы), либо остаёмся
+  // на локальной. Помечаем и при таймауте: висеть лоадером из-за подвисшей сети незачем.
+  const markSettled = () => { if (typeof window.markCloudStateSettled === 'function') window.markCloudStateSettled(); };
+  if (r === TIMED_OUT) { markSettled(); return; }
   const { data, error } = r;
-  if (error) { console.error('loadAppState:', error.message); return; }
+  if (error) { console.error('loadAppState:', error.message); markSettled(); return; }
+  markSettled();
   if (data) {
     const localSyncedAt = localStorage.getItem('habbittracker_local_synced_at');
     const remoteIsNewer = !localSyncedAt || new Date(data.updated_at) > new Date(localSyncedAt);

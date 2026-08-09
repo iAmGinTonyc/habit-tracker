@@ -30,6 +30,8 @@ interface Habit {
   uid: string;
   text: string;
   reminderTime?: string | null;
+  type?: string | null;   // 'oneTime' | 'regular' (или отсутствует у старых записей = regular)
+  date?: string | null;   // только у 'oneTime' — 'YYYY-MM-DD', день, на который создана задача
 }
 // deno-lint-ignore no-explicit-any
 type AnyState = Record<string, any>;
@@ -75,6 +77,12 @@ Deno.serve(async (req) => {
         for (const habit of state.habits as Habit[]) {
           if (!habit.reminderTime || habit.reminderTime !== nowHHMM) continue;
           if (doneToday[habit.uid]) continue; // уже отмечена сегодня — не дёргаем зря
+          // Разовая задача привязана к КОНКРЕТНОМУ дню (habit.date, см. renderTaskDayView в
+          // habbittracker.js) — напоминать по ней в другие дни бессмысленно. Без этой проверки
+          // напоминание разовой задачи срабатывало КАЖДЫЙ день в указанное время, бесконечно
+          // (вопрос юзера «она сработает только в тот день, когда запланирована?» — оказалось, нет).
+          // У регулярных задач date нет, они по-прежнему напоминают ежедневно.
+          if (habit.type === 'oneTime' && habit.date !== todayKey) continue;
 
           // Дедуп: если этот хабит уже получил пуш сегодня (напр., cron дёрнулся дважды за одну
           // минуту) — ignoreDuplicates ничего не вставит, .maybeSingle() вернёт null, пропускаем.
