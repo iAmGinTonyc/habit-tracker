@@ -760,12 +760,11 @@ canvas { width: 100%; height: 150px; }
 
    /* === ПИТАНИЕ === */
    .food-form { margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
-   /* Три простые ячейки вместо графика с часовой осью (см. HANDOFF.md §15): время сверху —
-      тот же кнопочный time-scroll-container/.time-slot-btn, что и «во сколько лёг/встал» в
-      чек-апе (см. renderTimeScroll в JS), что съел — в теле ячейки. */
+   /* Простые безымянные блоки вместо графика с часовой осью (см. HANDOFF.md §15) — юзер попросил
+      убрать подписи «Завтрак/Обед/Ужин», блоков теперь произвольное число (см. getMealSlots/
+      addMealSlot в JS). Время сверху — тот же кнопочный time-scroll-container/.time-slot-btn, что
+      и «во сколько лёг/встал» в чек-апе (см. renderTimeScroll в JS), что съел — в теле блока. */
    .food-cell { border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; }
-   .food-cell-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-   .food-meal-name { font-size: 13px; color: #888; }
    .food-cell .food-time { margin: 0 -2px 8px; }
    .food-text { width: 100%; height: 36px; border: 1px solid #e0e0e0; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 15px; color: #111; outline: none; box-sizing: border-box; }
    .food-text:focus { border-color: #111; }

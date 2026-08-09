@@ -142,16 +142,15 @@ function buildSummaryText(state: AnyState, todayKey: string): string | null {
     if (parts.length) sections.push('<b>🌙 Чек-ап:</b>\n' + parts.join('\n'));
   }
 
-  // Питание (dashState.foodLog[date].{breakfast,lunch,dinner})
+  // Питание (dashState.foodLog[date] = { blockId: {time, text}, ... }) — блоков теперь
+  // произвольное число и без фиксированных id/названий (юзер убрал «Завтрак/Обед/Ужин» и добавил
+  // кнопку «+ добавить приём пищи» в habbittracker.js, см. getMealSlots/addMealSlot), поэтому
+  // берём все заполненные записи дня по порядку времени, а не жёстко закреплённые 3 id.
   const foodToday = (state.foodLog || {})[todayKey] || {};
-  const mealNames: Record<string, string> = { breakfast: 'Завтрак', lunch: 'Обед', dinner: 'Ужин' };
-  const foodLines = Object.keys(mealNames)
-    .map((id) => {
-      const rec = foodToday[id];
-      if (!rec || (!rec.time && !rec.text)) return null;
-      return `${mealNames[id]}${rec.time ? ` (${escHtml(rec.time)})` : ''}${rec.text ? `: ${escHtml(rec.text)}` : ''}`;
-    })
-    .filter(Boolean);
+  const foodLines = Object.values(foodToday as Record<string, { time?: string; text?: string }>)
+    .filter((rec) => rec && (rec.time || rec.text))
+    .sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
+    .map((rec) => `${rec.time ? `${escHtml(rec.time)}` : 'без времени'}${rec.text ? `: ${escHtml(rec.text)}` : ''}`);
   if (foodLines.length) sections.push('<b>🍽 Питание:</b>\n' + foodLines.join('\n'));
 
   // Событие дня (dashState.dayEvents[date])

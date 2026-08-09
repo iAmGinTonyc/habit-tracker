@@ -119,7 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
         checkins: { morning: {}, evening: {} },
         checkinHistory: {},
         history: {},        // постоянный лог выполнения привычек: { 'YYYY-MM-DD': { uid: true } }
-        foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { breakfast:{time,text}, lunch, dinner } }
+        foodLog: {},        // приёмы пищи по дням: { 'YYYY-MM-DD': { mealId: {time,text}, ... } }
+        foodMealSlots: {},  // порядок id блоков питания по дням (юзер добавляет ещё блоки — только
+                             // на этот день, см. getMealSlots/addMealSlot); без записи — 3 дефолтных
         gameRecords: {},    // личные рекорды мини-игр: { sudoku:{bestTimeMs}, count:{bestCorrect}, words:{bestCorrect} }
         calorieLog: {},     // Pro mode «Питание»: { 'YYYY-MM-DD': [{ id, name, kcal }] } — см. renderFoodCalories
         calorieTarget: 2000, // дневная цель ккал в Pro mode, переопределяется юзером
@@ -398,6 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
             checkinHistory: {},
             history: {},
             foodLog: {},
+            foodMealSlots: {},
             gameRecords: {},
             calorieLog: {},
             calorieTarget: 2000,
@@ -492,6 +495,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!dashState.checkinHistory) dashState.checkinHistory = {};
             if (!dashState.history) dashState.history = {};
             if (!dashState.foodLog) dashState.foodLog = {};
+            if (!dashState.foodMealSlots) dashState.foodMealSlots = {};
             if (!dashState.gameRecords) dashState.gameRecords = {};
             if (!dashState.calorieLog) dashState.calorieLog = {};
             if (typeof dashState.calorieTarget !== 'number') dashState.calorieTarget = 2000;
@@ -2049,11 +2053,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // «Название [Источник]» — источник в квадратных скобках, только если у позиции он указан.
     const foodLabel = (item) => item.source ? `${item.name} [${item.source}]` : item.name;
 
-    const MEALS = [
-        { id: 'breakfast', name: 'Завтрак' },
-        { id: 'lunch',     name: 'Обед' },
-        { id: 'dinner',    name: 'Ужин' }
-    ];
+    // Блоки приёмов пищи — раньше три ФИКСИРОВАННЫХ (Завтрак/Обед/Ужин), юзер попросил убрать
+    // подписи и дать добавлять ещё блоки — но ТОЛЬКО на просматриваемый день: на следующий день
+    // снова дефолтные три, ничего не переносится. dashState.foodMealSlots[date] — порядок id
+    // блоков ИМЕННО для этого дня; без записи (день ещё не трогали) — дефолт из трёх id.
+    // 'breakfast'/'lunch'/'dinner' в дефолте — те же ключи, что раньше писались в foodLog у старых
+    // сохранений (просто без подписи-названия теперь) — так старые данные не съезжают и не рвутся.
+    const DEFAULT_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'];
+    function getMealSlots(date) {
+        const saved = (dashState.foodMealSlots || {})[date];
+        return (saved && saved.length) ? saved : DEFAULT_MEAL_SLOTS;
+    }
+    function addMealSlot(date) {
+        if (!dashState.foodMealSlots) dashState.foodMealSlots = {};
+        dashState.foodMealSlots[date] = getMealSlots(date).concat(newUid());
+        saveProgress();
+        renderFood();
+    }
     const escAttr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
 
     // даты текущей недели (Пн–Вс), содержащей сегодня
@@ -2069,7 +2085,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // null = сегодня (редактируемо); иначе 'YYYY-MM-DD' — просматриваем историю (только чтение).
+    // null = сегодня; иначе 'YYYY-MM-DD' — просматриваем/редактируем прошлый день (см. §…
+    // «Юзер попросил редактировать питание и за прошлые дни» — история давно не read-only).
     // Сама история питания по датам — фича Pro mode (см. HANDOFF.md §15), см. клик по history-btn-food.
     let currentFoodHistoryDate = null;
 
@@ -2087,16 +2104,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashState.psychoMode) { renderFoodCalories(root, viewDate, isHistory, isPro); return; }
         const dayRec = dashState.foodLog[viewDate] || {};
 
-        // Три простые ячейки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма
-        // (тот же кнопочный time-scroll-container, что и «во сколько лёг/встал» в чек-апе — см.
-        // renderTimeScroll — вместо нативного <input type="time">), ниже — что съел.
-        const cells = MEALS.map(meal => {
-            const rec = dayRec[meal.id] || {};
-            return `<div class="food-cell" data-meal="${meal.id}">
-                <div class="food-cell-head">
-                    <span class="food-meal-name">${meal.name}</span>
-                </div>
-                <div class="time-scroll-container food-time" data-meal="${meal.id}"></div>
+        // Простые блоки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма (тот
+        // же кнопочный time-scroll-container, что и «во сколько лёг/встал» в чек-апе — см.
+        // renderTimeScroll — вместо нативного <input type="time">), ниже — что съел. Юзер попросил
+        // убрать подписи «Завтрак/Обед/Ужин» — блоки теперь безымянные, plus id блока (data-meal)
+        // используется только как ключ в foodLog, нигде не показывается.
+        const slots = getMealSlots(viewDate);
+        const cells = slots.map(mealId => {
+            const rec = dayRec[mealId] || {};
+            return `<div class="food-cell" data-meal="${mealId}">
+                <div class="time-scroll-container food-time" data-meal="${mealId}"></div>
                 <input type="text" class="food-text" enterkeyhint="done" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
             </div>`;
         }).join('');
@@ -2112,6 +2129,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button class="history-btn${isHistory ? ' active' : ''}" id="history-btn-food" title="История (Pro mode)">${historyIcon}</button>
             </div>
             <div class="food-form" id="food-form">${cells}</div>
+            <button type="button" class="dash-habit-add-btn" id="add-meal-btn">+ добавить приём пищи</button>
             ${isHistory ? '<button class="checkin-save-btn" id="back-to-today-food-btn">← Вернуться к сегодня</button>' : `
             <h3 class="dash-subtitle food-week-title">Эта неделя</h3>
             <div class="food-week" id="food-week"></div>`}`;
@@ -2143,6 +2161,12 @@ document.addEventListener('DOMContentLoaded', () => {
             textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); textInput.blur(); } });
         });
         if (!isHistory) renderFoodWeek();
+
+        // Добавляет ещё один пустой блок ТОЛЬКО в просматриваемый день (viewDate) — см.
+        // getMealSlots/addMealSlot выше: dashState.foodMealSlots хранится по дате, у других дней
+        // не меняется, на следующий день (другой viewDate) снова дефолтные три блока.
+        const addMealBtn = document.getElementById('add-meal-btn');
+        if (addMealBtn) addMealBtn.addEventListener('click', () => addMealSlot(viewDate));
 
         const backBtn = document.getElementById('back-to-today-food-btn');
         if (backBtn) backBtn.addEventListener('click', () => { currentFoodHistoryDate = null; renderFood(); });
@@ -2313,10 +2337,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Просто список приёмов пищи по дням (время · что ел) — без часовой оси/графика.
         const rows = days.map(day => {
             const rec = (dashState.foodLog || {})[day.key] || {};
-            const meals = MEALS.map(m => ({ name: m.name, time: (rec[m.id] || {}).time, text: (rec[m.id] || {}).text }))
-                               .filter(m => m.time || m.text);
+            // Блоков теперь произвольное число (см. getMealSlots/addMealSlot) и без названий —
+            // берём напрямую все заполненные записи дня, а не фиксированный MEALS-список.
+            const meals = Object.values(rec).filter(m => m && (m.time || m.text));
             const chips = meals.slice().sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
-                .map(m => `<span class="fw-chip">${m.time ? `<b>${m.time}</b> ` : ''}${m.text || m.name}</span>`).join('');
+                .map(m => `<span class="fw-chip">${m.time ? `<b>${m.time}</b> ` : ''}${m.text || 'приём пищи'}</span>`).join('');
             return `<div class="fw-row${day.isToday ? ' today' : ''}">
                 <span class="fw-day">${day.wd}<small>${day.dayNum}</small></span>
                 <div class="fw-meals">${chips || '<span class="fw-empty">нет записей</span>'}</div>
