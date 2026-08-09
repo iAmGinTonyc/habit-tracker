@@ -688,39 +688,57 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncProModeTab() {
         const btn = document.getElementById('btn-morning');
         if (btn) btn.style.display = dashState.psychoMode ? 'none' : '';
-        syncPromodeStripes();
+        syncPromodeButtons();
     }
 
     // Юзер попросил: пока есть активная подписка, отдельный тумблер «Pro mode» (#psycho-toggle)
-    // пропадает — вместо него «Задачи» и «Питание» сами становятся переключателем. Правая ~22%
-    // каждой кнопки выглядит инвертированной (см. .vb-promode-stripe в CSS) с текстом «PRO MODE»/
-    // «BASE MODE», повёрнутым на 90°. Клик по полоске переключает режим и не даёт клику
-    // всплыть до самой кнопки (иначе вместо тумблера сработала бы обычная навигация вкладки).
-    // Без подписки — прежнее поведение, старый тумблер с замком/пейволлом.
-    function syncPromodeStripes() {
+    // пропадает — вместо него «Задачи» и «Питание» сами становятся переключателем. Правки по ходу
+    // (юзер поправил первую версию — была отдельная инвертированная кликабельная полоска):
+    //   - «PRO MODE»/«BASE MODE» — просто текст в две строки внутри кнопки, БЕЗ своего фона/цвета
+    //     (наследует цвет текста самой кнопки — «точь-в-точь как остальная часть кнопки») и без
+    //     отдельного hit-area — не самостоятельная кнопка внутри кнопки.
+    //   - «Задачи»/«Питание» остаются центрированы, как обычные вкладки (иконка+подпись+эта
+    //     подпись — просто ещё один центрированный элемент в той же колонке, не сдвигает остальное).
+    //   - Переключение режима — по клику на ВСЮ кнопку целиком, не только по этой подписи.
+    function syncPromodeButtons() {
         const isPro = !!window.hasActiveSubscription;
         const toggle = document.getElementById('psycho-toggle');
         if (toggle) toggle.style.display = isPro ? 'none' : '';
         ['btn-tasks', 'btn-food'].forEach(id => {
             const btn = document.getElementById(id);
             if (!btn) return;
-            btn.classList.toggle('has-promode-stripe', isPro);
-            if (!isPro) return;
-            let stripe = btn.querySelector('.vb-promode-stripe');
-            if (!stripe) {
-                stripe = document.createElement('span');
-                stripe.className = 'vb-promode-stripe';
-                stripe.innerHTML = '<span class="vb-promode-stripe-text"></span>';
-                stripe.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    setPsychoMode(!dashState.psychoMode);
-                });
-                btn.appendChild(stripe);
+            let label = btn.querySelector('.vb-promode-label');
+            // Подписка может закончиться уже ПОСЛЕ того, как подпись была создана (см. вызовы
+            // syncPromodeButtons из loadSubscription в auth.js) — прячем/убираем saved-разметку,
+            // а не просто снимаем класс с кнопки, иначе подпись осталась бы висеть навсегда.
+            if (!isPro) { if (label) label.style.display = 'none'; return; }
+            if (!label) {
+                label = document.createElement('span');
+                label.className = 'vb-promode-label';
+                btn.appendChild(label);
             }
-            stripe.querySelector('.vb-promode-stripe-text').textContent = dashState.psychoMode ? 'BASE MODE' : 'PRO MODE';
+            label.style.display = '';
+            label.innerHTML = dashState.psychoMode ? 'BASE<br>MODE' : 'PRO<br>MODE';
+            wirePromodeNavToggle(btn); // один раз на кнопку — см. флаг promodeWired внутри
         });
     }
-    window.syncPromodeStripes = syncPromodeStripes; // auth.js дёргает при смене статуса подписки
+    window.syncPromodeButtons = syncPromodeButtons; // auth.js дёргает при смене статуса подписки
+
+    // Клик по ВСЕЙ кнопке «Задачи»/«Питание» (не только по подписи) переключает режим — навигацию
+    // на саму вкладку уже делает общий обработчик .view-btn (см. ниже по файлу, switchView(btn
+    // .dataset.view)), два независимых слушателя на одной кнопке не конфликтуют. Проверка
+    // hasActiveSubscription — на случай, если подписка истечёт, а syncPromodeButtons ещё не успела
+    // перерисоваться (клик по обычной навигационной кнопке не должен внезапно дёргать Pro mode).
+    // applyPsychoModeState — общая часть setPsychoMode БЕЗ
+    // switchView('month') внутри (иначе клик по «Питание» переносил бы на «Задачи»).
+    function wirePromodeNavToggle(btn) {
+        if (btn.dataset.promodeWired) return;
+        btn.dataset.promodeWired = '1';
+        btn.addEventListener('click', () => {
+            if (!window.hasActiveSubscription) return;
+            applyPsychoModeState(!dashState.psychoMode);
+        });
+    }
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
@@ -1536,13 +1554,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return r.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
     };
 
-    function setPsychoMode(on) {
+    // Общая часть переключения режима БЕЗ принудительной навигации — нужна отдельно от
+    // setPsychoMode() для кнопок «Задачи»/«Питание» (см. wirePromodeNavToggle выше): у них
+    // навигацию на СВОЮ вкладку уже делает обычный обработчик .view-btn, а setPsychoMode всегда
+    // жёстко уводил на 'month', из-за чего клик по «Питание» неожиданно переносил бы на «Задачи».
+    function applyPsychoModeState(on) {
         dashState.psychoMode = on;
         saveProgress();
         const t = document.getElementById('psycho-toggle');
         if (t) { t.classList.toggle('on', on); t.setAttribute('aria-pressed', on ? 'true' : 'false'); }
         dashboardScreen.classList.toggle('psycho-invert', on); // инверсия цветов в режиме
         syncProModeTab();
+    }
+    function setPsychoMode(on) {
+        applyPsychoModeState(on);
         // «День» скрыт (см. HANDOFF.md §15) — Pro mode показывает переключатель «День»/«Месяц» во
         // вкладке «Задачи» (renderPsychoDay/renderPsychoMonth, см. renderMonthView).
         switchView('month');

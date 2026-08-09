@@ -240,8 +240,6 @@
    /* Питомец временно скрыт по просьбе — убери это правило, чтобы вернуть вкладку */
    .view-btn[data-view="pet"] { display: none; }
    .view-btn {
-       position: relative; /* якорь для .vb-promode-stripe, см. ниже */
-       overflow: hidden; /* обрезает полоску по скруглению угла кнопки */
        flex: 1 1 0;
        max-width: 130px;
        padding: 8px 4px;
@@ -263,32 +261,14 @@
    .vb-ico svg { width: 19px; height: 19px; }
    .vb-txt { font-size: 10px; letter-spacing: 0.2px; white-space: nowrap; }
    /* «Задачи»/«Питание» при активной подписке заменяют собой отдельный тумблер Pro mode (см.
-      syncPromodeStripes в habbittracker.js) — правая ~20% кнопки выглядит инвертированной
-      (чёрный фон) с текстом «PRO MODE»/«BASE MODE», повёрнутым на 90°. Раскраска сознательно
-      НЕ зависит от режима в CSS: чёрный фон + золотой текст — это единственное, что задано тут.
-      Когда Pro mode включён, ВЕСЬ #dashboard-screen получает filter:invert(1) (класс
-      .psycho-invert) — та же полоска на экране становится белой с синим текстом сама по себе
-      (инверсия золотого #d4af37 даёт ровно нужный синий), без отдельной ветки стилей под режим. */
-   .vb-promode-stripe {
-       display: none;
-       position: absolute;
-       top: 0; right: 0; bottom: 0;
-       width: 22%;
-       background: #000;
-       align-items: center;
-       justify-content: center;
-   }
-   .view-btn.has-promode-stripe { padding-right: calc(22% + 4px); } /* не даём тексту/иконке кнопки залезать под полоску */
-   .view-btn.has-promode-stripe .vb-promode-stripe { display: flex; }
-   .vb-promode-stripe-text {
-       display: inline-block;
-       transform: rotate(-90deg);
-       white-space: nowrap;
-       font-size: 6.5px;
-       font-weight: 700;
-       letter-spacing: 0.4px;
-       color: #d4af37;
-   }
+      syncPromodeButtons в habbittracker.js) — юзер поправил первую версию (была отдельная
+      инвертированная кликабельная полоска сбоку): «PRO MODE»/«BASE MODE» — просто ещё одна
+      центрированная строка ВНУТРИ той же колонки (иконка + «Задачи»/«Питание» остаются по
+      центру, как у остальных вкладок), без своего фона — цвет наследуется от кнопки, то есть
+      совпадает буква в букву с «Задачи»/«Питание» и так же переворачивается вместе со всей
+      кнопкой в Pro mode (filter:invert(1) на #dashboard-screen). Клик — по всей кнопке целиком,
+      не по этой подписи (см. wirePromodeNavToggle — вешается на сам .view-btn). */
+   .vb-promode-label { font-size: 8px; font-weight: 600; letter-spacing: 0.3px; line-height: 1.15; text-align: center; }
    .view-btn:hover { border-color: #bbb; color: #333; }
    .view-btn.active {
        background: #111;
