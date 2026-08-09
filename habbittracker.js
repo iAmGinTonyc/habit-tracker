@@ -619,7 +619,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewName === 'habits') { startDayTimer(); } else if (timerInterval) { clearInterval(timerInterval); }
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.classList.remove('active');
-            if (btn.dataset.view === viewName) btn.classList.add('active');
+            // У «Задачи»/«Питание» по ДВЕ кнопки с одинаковым data-view (base и Pro, см.
+            // index.html) — без сверки data-mode подсветились бы обе сразу. Кнопки без data-mode
+            // (Чек-ап и прочие) от режима не зависят и сверяются только по data-view.
+            const modeOk = !btn.dataset.mode || (btn.dataset.mode === 'pro') === !!dashState.psychoMode;
+            if (btn.dataset.view === viewName && modeOk) btn.classList.add('active');
         });
         if (viewName === 'habits') renderDayView();
         else if (viewName === 'training') initTrainingMenu();
@@ -691,65 +695,23 @@ document.addEventListener('DOMContentLoaded', () => {
         syncPromodeButtons();
     }
 
-    // Юзер попросил: пока есть активная подписка, отдельный тумблер «Pro mode» (#psycho-toggle)
-    // пропадает — вместо него «Задачи» и «Питание» сами становятся переключателем. Итоговый вид
-    // (сложился за три итерации правок юзера, см. HANDOFF.md §58–60):
-    //   - правая 20% кнопки — полоска с текстом «PRO MODE»/«BASE MODE» в две строки, повёрнутым
-    //     на 90°; золото на чёрном в base mode, синий на белом в Pro mode, причём на ОБЕИХ
-    //     кнопках одинаково (вся раскраска — в CSS, см. .vb-promode-label);
-    //   - «Задачи»/«Питание» при этом остаются отцентрованы по всей кнопке, как у остальных
-    //     вкладок (полоска position:absolute поверх, а не в потоке — ничего не сдвигает);
-    //   - переключение режима — по клику на ВСЮ кнопку целиком, не по полоске (у неё
-    //     pointer-events:none, клик всегда достаётся самой кнопке).
+    // «Задачи»/«Питание» существуют ДВУМЯ отдельными кнопками — base и Pro (последние с боковой
+    // полоской «PRO MODE», см. .vb-promode-label в CSS и разметку в index.html). Юзер отказался от
+    // идеи совмещённой кнопки-переключателя (см. HANDOFF.md §58–61): никакого тумблинга по клику,
+    // режим выбирается явно — какую кнопку нажал, тот режим и открылся (сама разметка полосок
+    // теперь статична в HTML, генерировать её из JS больше не нужно).
+    // Здесь остаётся только видимость: Pro-кнопки показываются лишь при активной подписке, без неё
+    // на их месте — прежний тумблер #psycho-toggle с замком, открывающий пейволл.
     function syncPromodeButtons() {
         const isPro = !!window.hasActiveSubscription;
         const toggle = document.getElementById('psycho-toggle');
         if (toggle) toggle.style.display = isPro ? 'none' : '';
-        ['btn-tasks', 'btn-food'].forEach(id => {
+        ['btn-tasks-pro', 'btn-food-pro'].forEach(id => {
             const btn = document.getElementById(id);
-            if (!btn) return;
-            let label = btn.querySelector('.vb-promode-label');
-            // Подписка может закончиться уже ПОСЛЕ того, как подпись была создана (см. вызовы
-            // syncPromodeButtons из loadSubscription в auth.js) — прячем/убираем saved-разметку,
-            // а не просто снимаем класс с кнопки, иначе подпись осталась бы висеть навсегда.
-            if (!isPro) { if (label) label.style.display = 'none'; return; }
-            if (!label) {
-                label = document.createElement('span');
-                label.className = 'vb-promode-label';
-                btn.appendChild(label);
-            }
-            label.style.display = '';
-            // Внутренний <span> — на нём висит rotate(-90deg) (см. CSS): вращать сам .vb-promode-label
-            // нельзя, он position:absolute и задаёт саму полоску (её фон/размер), поворот утащил бы
-            // вместе с текстом и фон.
-            label.innerHTML = dashState.psychoMode ? '<span>BASE<br>MODE</span>' : '<span>PRO<br>MODE</span>';
-            wirePromodeNavToggle(btn); // один раз на кнопку — см. флаг promodeWired внутри
+            if (btn) btn.style.display = isPro ? '' : 'none';
         });
     }
     window.syncPromodeButtons = syncPromodeButtons; // auth.js дёргает при смене статуса подписки
-
-    // Клик по ВСЕЙ кнопке «Задачи»/«Питание» (не только по подписи) переключает режим. Проверка
-    // hasActiveSubscription — на случай, если подписка истечёт, а syncPromodeButtons ещё не успела
-    // перерисоваться (клик по обычной навигационной кнопке не должен внезапно дёргать Pro mode).
-    // applyPsychoModeState — общая часть setPsychoMode БЕЗ switchView('month') внутри (иначе клик
-    // по «Питание» переносил бы на «Задачи»).
-    //
-    // ВАЖНО про повторный switchView. На этих кнопках ДВА слушателя: общий навигационный (см.
-    // ниже по файлу, `switchView(btn.dataset.view)` — вешается на все .view-btn ещё при
-    // DOMContentLoaded) и этот. Общий зарегистрирован РАНЬШЕ, поэтому и срабатывает первым —
-    // рисует вкладку ещё в СТАРОМ режиме, а мы следом меняем только флаг/инверсию, не трогая уже
-    // отрисованное содержимое. Из-за этого первый клик выглядел как «просто инвертировало цвета,
-    // режим не переключился», и лишь второй клик показывал нужный экран (баг-репорт юзера).
-    // Поэтому после смены режима перерисовываем ТУ ЖЕ вкладку ещё раз — теперь уже в новом режиме.
-    function wirePromodeNavToggle(btn) {
-        if (btn.dataset.promodeWired) return;
-        btn.dataset.promodeWired = '1';
-        btn.addEventListener('click', () => {
-            if (!window.hasActiveSubscription) return;
-            applyPsychoModeState(!dashState.psychoMode);
-            switchView(btn.dataset.view);
-        });
-    }
     const streakChip = n => n > 0 ? `<span class="dash-habit-streak">${FLAME}${n}</span>` : '';
 
     // === ИГРЫ: МЕТА И РАЗБЛОКИРОВКА ПО УРОВНЯМ ===
@@ -1566,9 +1528,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Общая часть переключения режима БЕЗ принудительной навигации — нужна отдельно от
-    // setPsychoMode() для кнопок «Задачи»/«Питание» (см. wirePromodeNavToggle выше): у них
-    // навигацию на СВОЮ вкладку уже делает обычный обработчик .view-btn, а setPsychoMode всегда
-    // жёстко уводил на 'month', из-за чего клик по «Питание» неожиданно переносил бы на «Задачи».
+    // setPsychoMode() для Pro-кнопок «Задачи»/«Питание» (см. обработчик .view-btn ниже): они сами
+    // ведут на СВОЮ вкладку, а setPsychoMode всегда жёстко уводит на 'month', из-за чего клик по
+    // Pro-«Питание» неожиданно переносил бы на «Задачи». Старый тумблер #psycho-toggle (показыва-
+    // ется только без подписки) по-прежнему зовёт setPsychoMode — ему переход на 'month' нужен.
     function applyPsychoModeState(on) {
         dashState.psychoMode = on;
         saveProgress();
@@ -3487,8 +3450,23 @@ document.addEventListener('DOMContentLoaded', () => {
     window.getLevelStats = getLevelStats;
 
     // === КНОПКИ ПЕРЕКЛЮЧЕНИЯ ===
+    // data-mode есть только у пар «Задачи»/«Питание» (base + Pro, см. index.html): такая кнопка
+    // не тумблит режим, а ЗАДАЁТ его — нажал Pro-вариант, включился Pro mode, нажал обычный,
+    // вернулся base. Режим применяем ДО switchView, иначе вкладка отрисуется в старом режиме
+    // (ровно этот баг «переключается только со второго клика» был у прежней схемы с двумя
+    // слушателями на одной кнопке, см. HANDOFF.md §61). Кнопки без data-mode режим не трогают.
     document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.addEventListener('click', () => switchView(btn.dataset.view));
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.mode;
+            if (mode) {
+                const wantPro = mode === 'pro';
+                // Подписка могла закончиться, а кнопка ещё не спрятаться (см. syncPromodeButtons) —
+                // не пускаем в Pro mode мимо оплаты, показываем пейволл, как и старый тумблер.
+                if (wantPro && !window.hasActiveSubscription) { openProModePaywall(); return; }
+                if (wantPro !== !!dashState.psychoMode) applyPsychoModeState(wantPro);
+            }
+            switchView(btn.dataset.view);
+        });
     });
 
     // === «СОБЫТИЕ ДНЯ» / «ЗАДАЧА ДНЯ» ===
