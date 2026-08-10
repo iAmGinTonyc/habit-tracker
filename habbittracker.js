@@ -56,6 +56,12 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand();
+            // Иначе Telegram сам перехватывает вертикальные свайпы по странице (жест закрытия/
+            // скролла клиента) — драг задач долгим тапом реагирует на нажатие, но само движение
+            // пальца до нашего pointermove не долетает (см. HANDOFF.md §67, правка после жалобы).
+            if (typeof window.Telegram.WebApp.disableVerticalSwipes === 'function') {
+                window.Telegram.WebApp.disableVerticalSwipes();
+            }
         } catch (e) {}
     } else {
         // Продукт только для Telegram (решено 22.07.2026, см. HANDOFF.md §15) — прямой браузерный
