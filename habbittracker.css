@@ -532,12 +532,8 @@ canvas { width: 100%; height: 150px; }
    .settings-btn.save:hover { background: #333; }
    .settings-btn:disabled { background: #eee; color: #aaa; cursor: default; }
    .settings-btn:disabled:hover { background: #eee; }
-   /* Юзер попросил золотой цвет для кнопки «Удалить» — и текстовую (в модалке настроек задачи),
-      и финальную confirm-кнопку (#confirm-ok, тот же текст «Удалить», см. confirmDialog). */
-   .settings-btn.delete { background: none; color: #b8952e; padding-left: 0; padding-right: 0; }
-   .settings-btn.delete:hover { color: #96751f; text-decoration: underline; }
-   #confirm-ok { background: #d4af37; color: #111; }
-   #confirm-ok:hover { background: #c19c2b; }
+   .settings-btn.delete { background: none; color: #999; padding-left: 0; padding-right: 0; }
+   .settings-btn.delete:hover { color: #111; text-decoration: underline; }
 
    /* Модалка подтверждения удаления */
    #confirm-modal { z-index: 2700; } /* выше модалки настроек привычки (2500) и разблокировки игры (2600) */
@@ -709,8 +705,10 @@ canvas { width: 100%; height: 150px; }
    .metric-goal, .metric-reset, .metric-del { background: none; border: none; color: #999; font-size: 12px; cursor: pointer; font-family: inherit; padding: 4px 2px; }
    .metric-goal:hover, .metric-reset:hover { color: #111; text-decoration: underline; }
    .metric-goal { margin-left: auto; }
-   .metric-del { color: #ccc; }
-   .metric-del:hover { color: #111; text-decoration: underline; }
+   /* Золотой — юзер попросил именно эту кнопку (удаление показателя Pro mode), не общую
+      кнопку «Удалить» в настройках задачи (см. HANDOFF.md §67в). */
+   .metric-del { color: #b8952e; }
+   .metric-del:hover { color: #96751f; text-decoration: underline; }
 
    /* Инлайн-редактор цели */
    .goal-edit-label { font-size: 12px; color: #888; }

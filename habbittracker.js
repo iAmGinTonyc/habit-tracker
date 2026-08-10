@@ -942,25 +942,32 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const dy = e.clientY - startY;
             row.style.transform = `translateY(${dy}px)`;
-            let moved = false;
-            let guard = 0;
-            while (guard++ < 20) {
-                const children = Array.from(groupEl.children);
-                const rowIndex = children.indexOf(row);
-                const rowRect = row.getBoundingClientRect();
-                const prev = children[rowIndex - 1];
-                if (prev) {
-                    const pr = prev.getBoundingClientRect();
-                    if (rowRect.top < pr.top + pr.height / 2) { groupEl.insertBefore(row, prev); moved = true; continue; }
+            // Максимум одна перестановка за событие — переставлять больше за раз, используя
+            // тот же (уже устаревший после первого insertBefore) dy для проверки следующего
+            // соседа, приводило на реальных тачах к «пинг-понгу» туда-обратно в одном и том
+            // же событии: видимая дрожь без изменения фактического порядка (см. HANDOFF.md §67в).
+            const children = Array.from(groupEl.children);
+            const rowIndex = children.indexOf(row);
+            const rowRect = row.getBoundingClientRect();
+            const prev = children[rowIndex - 1];
+            if (prev) {
+                const pr = prev.getBoundingClientRect();
+                if (rowRect.top < pr.top + pr.height / 2) {
+                    groupEl.insertBefore(row, prev);
+                    row.style.transform = 'translateY(0px)';
+                    startY = e.clientY;
+                    return;
                 }
-                const next = children[rowIndex + 1];
-                if (next) {
-                    const nr = next.getBoundingClientRect();
-                    if (rowRect.bottom > nr.top + nr.height / 2) { groupEl.insertBefore(row, next.nextSibling); moved = true; continue; }
-                }
-                break;
             }
-            if (moved) { row.style.transform = 'translateY(0px)'; startY = e.clientY; }
+            const next = children[rowIndex + 1];
+            if (next) {
+                const nr = next.getBoundingClientRect();
+                if (rowRect.bottom > nr.top + nr.height / 2) {
+                    groupEl.insertBefore(row, next.nextSibling);
+                    row.style.transform = 'translateY(0px)';
+                    startY = e.clientY;
+                }
+            }
         }
 
         function onDragEnd() {
