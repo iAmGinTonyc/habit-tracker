@@ -927,7 +927,10 @@ document.addEventListener('DOMContentLoaded', () => {
             cleanupEarly();
             dragging = true;
             row.addEventListener('click', suppressClickOnce, true); // долгий хап без сдвига не должен отмечать задачу выполненной
-            try { row.setPointerCapture(e.pointerId); } catch (err) {}
+            // Без setPointerCapture: на мобильных WebView перестановка ЗАХВАЧЕННОГО элемента
+            // в DOM (insertBefore при свапе строк) может молча сбросить захват и оборвать жест
+            // (pointercancel) после первой же перестановки — драг «замирает». Слушатели висят
+            // на document, так что захват и не нужен (см. HANDOFF.md §67г).
             row.classList.add('dragging');
             row.style.touchAction = 'none';
             document.body.style.userSelect = 'none';

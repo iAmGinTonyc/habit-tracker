@@ -170,7 +170,12 @@
    .day-task-list-text.done::after { width: 100%; }
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
-   .task-day-list { margin-top: 6px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+   /* Без -webkit-overflow-scrolling:touch — на iOS оно переключает скролл этого контейнера на
+      отдельный (async, компоузит-thread) нативный UIScrollView, внутри которого JS-обработчики
+      pointermove/preventDefault ненадёжны (доки WebKit это подтверждают) — драг задач долгим
+      тапом стопорился после первой перестановки именно из-за этого (см. HANDOFF.md §67г).
+      Обычный overflow-y:auto на современном iOS (13+) и так скроллится плавно, свойство не нужно. */
+   .task-day-list { margin-top: 6px; max-height: 48vh; overflow-y: auto; overscroll-behavior: contain; }
    .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; background: #fff; }
    .task-day-row.dragging { position: relative; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-radius: 8px; opacity: 0.96; transition: none; cursor: grabbing; }
    .task-day-text { font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
@@ -195,7 +200,7 @@
    .timer-subtitle { text-align: center; font-size: 11px; color: #ccc; font-style: italic; margin-bottom: 20px; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
    /* max-height + overflow-y:auto — список внутри себя скроллится (лимит подняли до 30 задач,
       см. HANDOFF.md), а не просто бесконечно растягивает всю страницу. */
-   #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+   #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; max-height: 48vh; overflow-y: auto; overscroll-behavior: contain; }
    
    .dash-habit-group { display: flex; flex-direction: column; }
 
@@ -706,9 +711,14 @@ canvas { width: 100%; height: 150px; }
    .metric-goal:hover, .metric-reset:hover { color: #111; text-decoration: underline; }
    .metric-goal { margin-left: auto; }
    /* Золотой — юзер попросил именно эту кнопку (удаление показателя Pro mode), не общую
-      кнопку «Удалить» в настройках задачи (см. HANDOFF.md §67в). */
-   .metric-del { color: #b8952e; }
-   .metric-del:hover { color: #96751f; text-decoration: underline; }
+      кнопку «Удалить» в настройках задачи (см. HANDOFF.md §67в/г). Кнопка живёт ТОЛЬКО внутри
+      Pro mode (renderPsychoMetrics вызывается лишь при dashState.psychoMode), а весь
+      #dashboard-screen в Pro mode получает filter:invert(1) (.psycho-invert, см. комментарий
+      у .vb-promode-label выше) — обычный #b8952e после инверсии превращается в синий. Поэтому
+      здесь задан ПРЕДЫНВЕРТИРОВАННЫЙ цвет (#476ad1/#698ae0 — поканальное 255-x от золотого),
+      который инверсия возвращает обратно в золото #b8952e/#96751f на экране. */
+   .metric-del { color: #476ad1; }
+   .metric-del:hover { color: #698ae0; text-decoration: underline; }
 
    /* Инлайн-редактор цели */
    .goal-edit-label { font-size: 12px; color: #888; }
