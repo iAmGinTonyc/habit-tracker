@@ -894,7 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function wireRowDrag(row, groupEl, onReorder) {
         let pressTimer = null;
         let dragging = false;
-        let startY = 0, startX = 0;
+        let startY = 0, startX = 0, lastY = 0;
 
         function clearPressTimer() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }
         function cleanupEarly() {
@@ -902,18 +902,29 @@ document.addEventListener('DOMContentLoaded', () => {
             row.removeEventListener('pointerup', onEarlyUp);
             row.removeEventListener('pointercancel', onEarlyUp);
         }
+        // Строка держит touch-action:none (см. CSS) — иначе на реальных тачах браузер отдаёт
+        // жест нативному скроллу раньше, чем успевает сработать долгий тап (см. HANDOFF.md §67г/д).
+        // Но это же вырубает нативный скролл списка свайпом ПРЯМО по строке — поэтому пока не
+        // истекли DRAG_LONG_PRESS_MS и сдвиг больше DRAG_MOVE_CANCEL_PX (обычный быстрый свайп,
+        // не долгий тап), скроллим контейнер сами вручную, 1-в-1 повторяя движение пальца.
         function onEarlyMove(e) {
-            if (Math.abs(e.clientX - startX) > DRAG_MOVE_CANCEL_PX || Math.abs(e.clientY - startY) > DRAG_MOVE_CANCEL_PX) clearPressTimer();
+            const dx = e.clientX - startX, dy = e.clientY - startY;
+            if (pressTimer && (Math.abs(dx) > DRAG_MOVE_CANCEL_PX || Math.abs(dy) > DRAG_MOVE_CANCEL_PX)) clearPressTimer();
+            if (!pressTimer) {
+                e.preventDefault();
+                groupEl.scrollTop -= (e.clientY - lastY);
+                lastY = e.clientY;
+            }
         }
         function onEarlyUp() { clearPressTimer(); cleanupEarly(); }
 
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('.habit-settings-icon, .task-day-settings')) return; // не мешаем открытию настроек
-            startX = e.clientX; startY = e.clientY;
+            startX = e.clientX; startY = e.clientY; lastY = e.clientY;
             clearPressTimer();
             pressTimer = setTimeout(() => startDrag(e), DRAG_LONG_PRESS_MS);
-            row.addEventListener('pointermove', onEarlyMove);
+            row.addEventListener('pointermove', onEarlyMove, { passive: false });
             row.addEventListener('pointerup', onEarlyUp);
             row.addEventListener('pointercancel', onEarlyUp);
         }

@@ -176,7 +176,12 @@
       тапом стопорился после первой перестановки именно из-за этого (см. HANDOFF.md §67г).
       Обычный overflow-y:auto на современном iOS (13+) и так скроллится плавно, свойство не нужно. */
    .task-day-list { margin-top: 6px; max-height: 48vh; overflow-y: auto; overscroll-behavior: contain; }
-   .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; background: #fff; }
+   /* touch-action:none — обязателен, СТАТИЧНО, а не выставленный из JS по таймеру: браузер
+      решает, отдавать ли жест нативному скроллу, в момент touchstart, и передумать позже уже
+      нельзя (см. HANDOFF.md §67д). Из-за этого свайп ПРЯМО по строке больше не скроллит список
+      нативно — вместо этого его эмулирует JS (wireRowDrag/onEarlyMove), пока не сработал долгий
+      тап. */
+   .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; background: #fff; touch-action: none; }
    .task-day-row.dragging { position: relative; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-radius: 8px; opacity: 0.96; transition: none; cursor: grabbing; }
    .task-day-text { font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
    .task-day-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -205,7 +210,7 @@
    .dash-habit-group { display: flex; flex-direction: column; }
 
    /* Строка привычки */
-   .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; background: #fff; }
+   .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; background: #fff; touch-action: none; }
    .dash-habit-row.dragging { position: relative; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-radius: 8px; opacity: 0.96; transition: none; cursor: grabbing; }
    .habit-main-line { display: flex; align-items: center; width: 100%; gap: 12px; }
    .habit-check { width: 19px; height: 19px; border: 1.6px solid #cfcfcf; border-radius: 5px; flex-shrink: 0; cursor: pointer; position: relative; transition: all 0.2s ease; }
