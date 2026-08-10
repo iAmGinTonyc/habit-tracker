@@ -830,10 +830,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const allHabits = dashState.habits;
         const regularHabits = allHabits.filter(h => (h.type || 'regular') === 'regular');
         const oneTimeHabits = allHabits.filter(h => h.type === 'oneTime' && h.date === todayKey());
-        const renderRow = (habit) => {
+        const renderRow = (habit, groupEl) => {
             const index = allHabits.indexOf(habit);
             const row = document.createElement('div');
             row.className = `dash-habit-row ${habit.completed ? 'completed' : ''}`;
+            row.dataset.uid = habit.uid;
             let subtextHtml = '';
             if (habit.triggerText) subtextHtml += `<span>после того как ${habit.triggerText}</span>`;
             if (habit.reminderTime) subtextHtml += `<span>напомнить в ${habit.reminderTime}</span>`;
@@ -841,15 +842,22 @@ document.addEventListener('DOMContentLoaded', () => {
             row.querySelector('.habit-check').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.dash-habit-text').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.habit-settings-icon').addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(index); });
-            list.appendChild(row);
+            wireRowDrag(row, groupEl, renderDashboardHabits);
+            groupEl.appendChild(row);
         };
         if (regularHabits.length) {
             list.insertAdjacentHTML('beforeend', '<div class="task-group-label">Регулярные</div>');
-            regularHabits.forEach(renderRow);
+            const group = document.createElement('div');
+            group.className = 'dash-habit-group';
+            list.appendChild(group);
+            regularHabits.forEach(h => renderRow(h, group));
         }
         if (oneTimeHabits.length) {
             list.insertAdjacentHTML('beforeend', '<div class="task-group-label">Разовые</div>');
-            oneTimeHabits.forEach(renderRow);
+            const group = document.createElement('div');
+            group.className = 'dash-habit-group';
+            list.appendChild(group);
+            oneTimeHabits.forEach(h => renderRow(h, group));
         }
 
         // добавление новой привычки (до лимита MAX_HABITS, разовые в лимит не входят) — сразу
@@ -869,6 +877,115 @@ document.addEventListener('DOMContentLoaded', () => {
             list.appendChild(note);
         }
         if (FEATURES.lifeWheel) renderLifeWheel('day', 'life-wheel-day'); // колесо отражает выполнение
+    }
+
+    // Реордер задач через «нажать и удержать». Долгий тач/клик на строке (не на настройках)
+    // включает режим перетаскивания; свайп вверх/вниз меняет строки местами внутри своей группы
+    // (Регулярные/Разовые порознь — метки-разделители не пересекаются). Порядок фиксируется в
+    // dashState.habits по фактическим слотам группы, остальной массив не трогается.
+    const DRAG_LONG_PRESS_MS = 380;
+    const DRAG_MOVE_CANCEL_PX = 10;
+    function wireRowDrag(row, groupEl, onReorder) {
+        let pressTimer = null;
+        let dragging = false;
+        let startY = 0, startX = 0;
+
+        function clearPressTimer() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }
+        function cleanupEarly() {
+            row.removeEventListener('pointermove', onEarlyMove);
+            row.removeEventListener('pointerup', onEarlyUp);
+            row.removeEventListener('pointercancel', onEarlyUp);
+        }
+        function onEarlyMove(e) {
+            if (Math.abs(e.clientX - startX) > DRAG_MOVE_CANCEL_PX || Math.abs(e.clientY - startY) > DRAG_MOVE_CANCEL_PX) clearPressTimer();
+        }
+        function onEarlyUp() { clearPressTimer(); cleanupEarly(); }
+
+        function onPointerDown(e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target.closest('.habit-settings-icon, .task-day-settings')) return; // не мешаем открытию настроек
+            startX = e.clientX; startY = e.clientY;
+            clearPressTimer();
+            pressTimer = setTimeout(() => startDrag(e), DRAG_LONG_PRESS_MS);
+            row.addEventListener('pointermove', onEarlyMove);
+            row.addEventListener('pointerup', onEarlyUp);
+            row.addEventListener('pointercancel', onEarlyUp);
+        }
+
+        function suppressClickOnce(e) {
+            e.stopPropagation(); e.preventDefault();
+            row.removeEventListener('click', suppressClickOnce, true);
+        }
+
+        function startDrag(e) {
+            cleanupEarly();
+            dragging = true;
+            row.addEventListener('click', suppressClickOnce, true); // долгий хап без сдвига не должен отмечать задачу выполненной
+            try { row.setPointerCapture(e.pointerId); } catch (err) {}
+            row.classList.add('dragging');
+            row.style.touchAction = 'none';
+            document.body.style.userSelect = 'none';
+            if (navigator.vibrate) navigator.vibrate(12);
+            document.addEventListener('pointermove', onDragMove, { passive: false });
+            document.addEventListener('pointerup', onDragEnd);
+            document.addEventListener('pointercancel', onDragEnd);
+        }
+
+        function onDragMove(e) {
+            if (!dragging) return;
+            e.preventDefault();
+            const dy = e.clientY - startY;
+            row.style.transform = `translateY(${dy}px)`;
+            let moved = false;
+            let guard = 0;
+            while (guard++ < 20) {
+                const children = Array.from(groupEl.children);
+                const rowIndex = children.indexOf(row);
+                const rowRect = row.getBoundingClientRect();
+                const prev = children[rowIndex - 1];
+                if (prev) {
+                    const pr = prev.getBoundingClientRect();
+                    if (rowRect.top < pr.top + pr.height / 2) { groupEl.insertBefore(row, prev); moved = true; continue; }
+                }
+                const next = children[rowIndex + 1];
+                if (next) {
+                    const nr = next.getBoundingClientRect();
+                    if (rowRect.bottom > nr.top + nr.height / 2) { groupEl.insertBefore(row, next.nextSibling); moved = true; continue; }
+                }
+                break;
+            }
+            if (moved) { row.style.transform = 'translateY(0px)'; startY = e.clientY; }
+        }
+
+        function onDragEnd() {
+            dragging = false;
+            clearPressTimer();
+            document.removeEventListener('pointermove', onDragMove);
+            document.removeEventListener('pointerup', onDragEnd);
+            document.removeEventListener('pointercancel', onDragEnd);
+            row.classList.remove('dragging');
+            row.style.transform = '';
+            row.style.touchAction = '';
+            document.body.style.userSelect = '';
+            const uidsInGroup = Array.from(groupEl.children).map(el => el.dataset.uid);
+            applyHabitOrder(uidsInGroup);
+            saveProgress();
+            onReorder();
+        }
+
+        row.addEventListener('pointerdown', onPointerDown);
+    }
+
+    // Ставит привычки группы (набор uid в новом визуальном порядке) на те же позиции индексов
+    // в dashState.habits, которые они занимали до перетаскивания — так порядок других групп и
+    // прочие данные, завязанные на индекс, не сбиваются мимо этого драга.
+    function applyHabitOrder(uidsInGroup) {
+        const byUid = new Map(dashState.habits.map(h => [h.uid, h]));
+        const groupHabits = uidsInGroup.map(uid => byUid.get(uid)).filter(Boolean);
+        const uidSet = new Set(uidsInGroup);
+        const slots = [];
+        dashState.habits.forEach((h, i) => { if (uidSet.has(h.uid)) slots.push(i); });
+        slots.forEach((slotIdx, k) => { dashState.habits[slotIdx] = groupHabits[k]; });
     }
 
     function updateRowStreak(rowElement, uid) {
@@ -1139,6 +1256,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         root.querySelectorAll('.task-day-settings').forEach(s => s.addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(+s.dataset.idx); }));
+
+        // Реордер «нажать и удержать» — свой список по группе (Регулярные/Разовые не смешиваются).
+        root.querySelectorAll('.task-day-list').forEach(groupEl => {
+            Array.from(groupEl.children).forEach(row => wireRowDrag(row, groupEl, () => renderTaskDayView(currentTaskDate)));
+        });
 
         // «+ добавить задачу» — сразу открывает модалку настроек (юзер попросил вместо инлайн-
         // инпута), разовые задачи из этой кнопки привязываются к dateKey — дню, что сейчас открыт.

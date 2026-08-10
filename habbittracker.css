@@ -171,7 +171,8 @@
 
    /* normal-mode «День» — простой список привычек на выбранный день, см. renderTaskDayView */
    .task-day-list { margin-top: 6px; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
-   .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
+   .task-day-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid #f3f3f3; cursor: pointer; background: #fff; }
+   .task-day-row.dragging { position: relative; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-radius: 8px; opacity: 0.96; transition: none; cursor: grabbing; }
    .task-day-text { font-size: 16px; color: #111; position: relative; transition: color 0.3s ease; }
    .task-day-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1.5px; background: #bbb; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
    .task-day-row.done .task-day-text { color: #bbb; }
@@ -196,8 +197,11 @@
       см. HANDOFF.md), а не просто бесконечно растягивает всю страницу. */
    #dash-habit-list { width: 100%; display: flex; flex-direction: column; gap: 0; max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
    
+   .dash-habit-group { display: flex; flex-direction: column; }
+
    /* Строка привычки */
-   .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; }
+   .dash-habit-row { display: flex; flex-direction: column; padding: 13px 0; border-bottom: 1px solid #f3f3f3; transition: padding 0.25s ease; background: #fff; }
+   .dash-habit-row.dragging { position: relative; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.14); border-radius: 8px; opacity: 0.96; transition: none; cursor: grabbing; }
    .habit-main-line { display: flex; align-items: center; width: 100%; gap: 12px; }
    .habit-check { width: 19px; height: 19px; border: 1.6px solid #cfcfcf; border-radius: 5px; flex-shrink: 0; cursor: pointer; position: relative; transition: all 0.2s ease; }
    .habit-check:hover { border-color: #111; }
