@@ -891,10 +891,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // dashState.habits по фактическим слотам группы, остальной массив не трогается.
     const DRAG_LONG_PRESS_MS = 380;
     const DRAG_MOVE_CANCEL_PX = 10;
+    // ВРЕМЕННО (диагностика): на компе мышью драг работает, на телефоне юзера — нет, и уже
+    // несколько раундов догадок (touch-action, capture, -webkit-overflow-scrolling,
+    // disableVerticalSwipes) не помогли. Нужны факты с конкретного устройства вместо очередной
+    // догадки — маленькая консоль прямо на экране показывает, какие события реально доходят.
+    // Убрать целиком (вызов dragDebugLog везде + саму функцию) после диагностики, см. HANDOFF.md §67е.
+    let dragDebugEl = null;
+    function dragDebugLog(msg) {
+        if (!dragDebugEl) {
+            dragDebugEl = document.createElement('div');
+            dragDebugEl.style.cssText = 'position:fixed;left:4px;right:4px;bottom:4px;z-index:99999;background:rgba(0,0,0,0.85);color:#0f0;font:10px/1.35 monospace;padding:6px;max-height:130px;overflow-y:auto;pointer-events:none;white-space:pre-wrap;border-radius:6px;';
+            document.body.appendChild(dragDebugEl);
+        }
+        const t = new Date().toISOString().slice(14, 23);
+        dragDebugEl.textContent = (dragDebugEl.textContent + `\n${t} ${msg}`).split('\n').slice(-16).join('\n');
+    }
     function wireRowDrag(row, groupEl, onReorder) {
         let pressTimer = null;
         let dragging = false;
-        let startY = 0, startX = 0, lastY = 0;
+        let startY = 0, startX = 0, lastY = 0, moveCount = 0;
 
         function clearPressTimer() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } }
         function cleanupEarly() {
@@ -909,16 +924,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // не долгий тап), скроллим контейнер сами вручную, 1-в-1 повторяя движение пальца.
         function onEarlyMove(e) {
             const dx = e.clientX - startX, dy = e.clientY - startY;
-            if (pressTimer && (Math.abs(dx) > DRAG_MOVE_CANCEL_PX || Math.abs(dy) > DRAG_MOVE_CANCEL_PX)) clearPressTimer();
+            if (pressTimer && (Math.abs(dx) > DRAG_MOVE_CANCEL_PX || Math.abs(dy) > DRAG_MOVE_CANCEL_PX)) {
+                dragDebugLog(`early-move cancels timer (dx=${Math.round(dx)} dy=${Math.round(dy)}) → manual-scroll mode`);
+                clearPressTimer();
+            }
             if (!pressTimer) {
                 e.preventDefault();
                 groupEl.scrollTop -= (e.clientY - lastY);
                 lastY = e.clientY;
             }
         }
-        function onEarlyUp() { clearPressTimer(); cleanupEarly(); }
+        function onEarlyUp(e) { dragDebugLog(`early-up via ${e ? e.type : '?'} (released before long-press)`); clearPressTimer(); cleanupEarly(); }
 
         function onPointerDown(e) {
+            dragDebugLog(`↓ down type=${e.pointerType} btn=${e.button}`);
             if (e.button !== undefined && e.button !== 0) return;
             if (e.target.closest('.habit-settings-icon, .task-day-settings')) return; // не мешаем открытию настроек
             startX = e.clientX; startY = e.clientY; lastY = e.clientY;
@@ -935,8 +954,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function startDrag(e) {
+            dragDebugLog('★ LONGPRESS → dragging=true');
             cleanupEarly();
             dragging = true;
+            moveCount = 0;
             row.addEventListener('click', suppressClickOnce, true); // долгий хап без сдвига не должен отмечать задачу выполненной
             // Без setPointerCapture: на мобильных WebView перестановка ЗАХВАЧЕННОГО элемента
             // в DOM (insertBefore при свапе строк) может молча сбросить захват и оборвать жест
@@ -945,14 +966,17 @@ document.addEventListener('DOMContentLoaded', () => {
             row.classList.add('dragging');
             row.style.touchAction = 'none';
             document.body.style.userSelect = 'none';
-            if (navigator.vibrate) navigator.vibrate(12);
+            try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) { dragDebugLog('vibrate threw: ' + err.message); }
             document.addEventListener('pointermove', onDragMove, { passive: false });
             document.addEventListener('pointerup', onDragEnd);
             document.addEventListener('pointercancel', onDragEnd);
+            dragDebugLog('listeners attached on document');
         }
 
         function onDragMove(e) {
             if (!dragging) return;
+            moveCount++;
+            if (moveCount === 1 || moveCount % 5 === 0) dragDebugLog(`move #${moveCount} y=${Math.round(e.clientY)} defaultPrevented-before=${e.defaultPrevented}`);
             e.preventDefault();
             const dy = e.clientY - startY;
             row.style.transform = `translateY(${dy}px)`;
@@ -984,7 +1008,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        function onDragEnd() {
+        function onDragEnd(e) {
+            dragDebugLog(`✕ end via ${e ? e.type : '?'}, total moves=${moveCount}`);
             dragging = false;
             clearPressTimer();
             document.removeEventListener('pointermove', onDragMove);
