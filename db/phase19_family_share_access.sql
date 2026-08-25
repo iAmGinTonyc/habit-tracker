@@ -103,14 +103,19 @@ begin
     v_full := false; v_stats := true; v_event := true; v_event_hist := false; v_habits := false;
     v_metrics := false; v_checkin := false; v_food := false; v_day_tasks := false;
   end if;
-  if v_full or v_stats      then keys := keys || 'stats';           end if;
-  if v_full or v_event      then keys := keys || 'dayEvent';        end if;
-  if v_full or v_event_hist then keys := keys || 'dayEventHistory'; end if;
-  if v_full or v_habits     then keys := keys || 'habits';          end if;
-  if v_full or v_metrics    then keys := keys || 'metrics';         end if;
-  if v_full or v_checkin    then keys := keys || 'checkin';         end if;
-  if v_full or v_food       then keys := keys || 'food';            end if;
-  if v_full or v_day_tasks  then keys := keys || 'dayTasks';        end if;
+  -- ::text ОБЯЗАТЕЛЕН у каждого литерала. Без него Postgres видит слева text[], справа строку
+  -- НЕИЗВЕСТНОГО типа и выбирает перегрузку «массив ‖ массив», то есть пытается разобрать 'stats'
+  -- как литерал массива — и падает в рантайме с «malformed array literal: "stats"». Синтаксически
+  -- код при этом безупречен, никакой линтер/парсер это не поймает: ошибка проявляется только при
+  -- вызове функции. Ровно на этом сломался список семьи после первого выката Фазы 19.
+  if v_full or v_stats      then keys := keys || 'stats'::text;           end if;
+  if v_full or v_event      then keys := keys || 'dayEvent'::text;        end if;
+  if v_full or v_event_hist then keys := keys || 'dayEventHistory'::text; end if;
+  if v_full or v_habits     then keys := keys || 'habits'::text;          end if;
+  if v_full or v_metrics    then keys := keys || 'metrics'::text;         end if;
+  if v_full or v_checkin    then keys := keys || 'checkin'::text;         end if;
+  if v_full or v_food       then keys := keys || 'food'::text;            end if;
+  if v_full or v_day_tasks  then keys := keys || 'dayTasks'::text;        end if;
   return keys;
 end $$;
 

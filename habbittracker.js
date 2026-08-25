@@ -9,6 +9,7 @@ const FEATURES = {
     swipeNav: false, // свайп пальцем между вкладками — отключено по просьбе (некрасиво смотрелось на десктопе/Telegram Desktop)
     dayTab: false, // вкладка «День» — заменена вкладкой «Задачи» (бывший «Месяц»), см. HANDOFF.md §15
     lifeWheel: false, // колесо жизни (месяц + поле «Сферы» в настройках привычки) — временно скрыто по просьбе юзера
+    foodPro: false, // Pro-вариант «Питания» (счётчик калорий с автокомплитом) — временно скрыт по просьбе юзера
 };
 // Пока настоящая проверка подписки не подключена (Stars-оплата ещё не проверена живьём),
 // window.hasActiveSubscription всегда false — Pro mode показывает пейволл при любом клике.
@@ -49,6 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!FEATURES.lifeWheel) {
         document.querySelectorAll('.life-wheel-field, .life-wheel').forEach(el => el.style.display = 'none');
+    }
+    // Прячем ТОЛЬКО Pro-вариант «Питания» (#btn-food-pro) — обычное «Питание» (#btn-food) остаётся.
+    // Одной кнопки мало: psychoMode — общий тумблер на «Задачи» и «Питание», поэтому в Pro-режиме
+    // задач вкладка «Питание» всё равно отрисовалась бы счётчиком калорий. Второй гейт стоит в
+    // renderFood(), см. FEATURES.foodPro там.
+    if (!FEATURES.foodPro) {
+        const el = document.getElementById('btn-food-pro');
+        if (el) el.style.display = 'none';
     }
 
     // Telegram Mini App: разворачиваем на весь экран, сигналим клиенту, что готовы
@@ -198,6 +207,43 @@ document.addEventListener('DOMContentLoaded', () => {
         // exitFamilyViewMode. Свои данные при этом не теряются: в режиме просмотра мы вообще
         // ничего не сохраняли (saveProgress — no-op).
         if (familyView) { pendingCloudState = { remoteState, remoteUpdatedAt }; return; }
+        // ПРЕДОХРАНИТЕЛЬ ОТ ТИХОЙ ПОТЕРИ МЕСЯЦА (инцидент 25.08.2026, см. db/phase23_app_state_history.sql).
+        // last-write-wins сравнивает только ВРЕМЯ записи, а не объём: юзер случайно открыл
+        // приложение на втором устройстве с почти пустым состоянием, оно оказалось «свежее», и
+        // облако вместе со всеми устройствами уехало на урезанную версию — из истории пропали две
+        // недели сразу во всех разделах, и заметил он это только через сутки.
+        // Теперь: если облачная версия заметно БЕДНЕЕ локальной, молча её не принимаем, а
+        // спрашиваем. Свежесть остаётся критерием по умолчанию — гейт срабатывает только на
+        // подозрительную потерю дней, а не на любое расхождение.
+        if (isSuspiciousShrink(loadProgress(), remoteState)) {
+            askBeforeCloudOverwrite(remoteState, remoteUpdatedAt);
+            return;
+        }
+        commitCloudState(remoteState, remoteUpdatedAt);
+    };
+
+    // Сколько «дней данных» в состоянии: объединяем ключи-даты всех разделов, где они есть.
+    // Считаем именно уникальные дни, а не байты: байты скачут от переименования задачи, а
+    // пропавшая неделя — это всегда пропавшие ключи.
+    function countStateDays(s) {
+        if (!s) return 0;
+        const days = new Set();
+        ['history', 'checkinHistory', 'foodLog', 'dayEvents', 'dayTasks', 'metricLog', 'calorieLog']
+            .forEach(k => { const o = s[k]; if (o && typeof o === 'object') Object.keys(o).forEach(d => days.add(d)); });
+        return days.size;
+    }
+
+    // «Подозрительно» = облако теряет больше 2 дней И больше 10% от локального объёма. Два порога
+    // вместе, чтобы не дёргать юзера по пустякам: одно-двухдневное отставание второго устройства —
+    // норма (оно просто ещё не синкнулось), а вот минус две недели — это то, что надо остановить.
+    function isSuspiciousShrink(localState, remoteState) {
+        const localDays = countStateDays(localState);
+        if (!localDays) return false; // локально пусто — терять нечего, это обычный первый синк
+        const lost = localDays - countStateDays(remoteState);
+        return lost > 2 && lost > localDays * 0.1;
+    }
+
+    function commitCloudState(remoteState, remoteUpdatedAt) {
         try {
             const current = localStorage.getItem('habbittracker_progress');
             if (current) localStorage.setItem('habbittracker_progress_backup', current);
@@ -205,7 +251,35 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('habbittracker_progress', JSON.stringify(remoteState));
         if (remoteUpdatedAt) localStorage.setItem('habbittracker_local_synced_at', remoteUpdatedAt);
         location.reload();
-    };
+    }
+
+    // Тот же визуальный язык, что у checkForBackupRestore ниже (.restore-backup-bar) — юзер уже
+    // видел такую плашку. Отличие принципиальное: здесь мы спрашиваем ДО перезаписи, а не
+    // предлагаем откат после неё.
+    function askBeforeCloudOverwrite(remoteState, remoteUpdatedAt) {
+        if (document.querySelector('.restore-backup-bar')) return; // уже спрашиваем — не плодим плашки
+        const localDays = countStateDays(loadProgress());
+        const remoteDays = countStateDays(remoteState);
+        const bar = document.createElement('div');
+        bar.className = 'restore-backup-bar';
+        bar.innerHTML = `
+            <span>В облаке версия с другого устройства, и в ней ЗАМЕТНО МЕНЬШЕ данных: ${remoteDays} дн. против ${localDays} дн. здесь. Обычно так бывает, если приложение случайно открыли там, где прогресса почти нет. Принять облачную версию?</span>
+            <div class="restore-backup-actions">
+                <button type="button" class="restore-backup-no">Оставить мои данные</button>
+                <button type="button" class="restore-backup-yes">Принять облачную</button>
+            </div>`;
+        document.body.appendChild(bar);
+        bar.querySelector('.restore-backup-yes').addEventListener('click', () => {
+            bar.remove();
+            commitCloudState(remoteState, remoteUpdatedAt);
+        });
+        bar.querySelector('.restore-backup-no').addEventListener('click', () => {
+            bar.remove();
+            // Проталкиваем СВОЁ состояние обратно в облако, иначе следующий же тик реалтайма
+            // принесёт ту же обеднённую версию и спросит снова — и так до бесконечности.
+            saveProgress();
+        });
+    }
 
     // Предохранитель от гонки при первом включении синка (Фаза 11): если это устройство первым
     // открыл юзер ПОСЛЕ другого устройства с другими (например, пустыми) данными — свежесть
@@ -284,6 +358,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================
     const pad2 = n => String(n).padStart(2, '0');
     const fdt = (y, m, d) => `${y}-${pad2(m + 1)}-${pad2(d)}`; // m: 0-based
+    // ВСЕГДА локальная дата. Раньше чек-ап (autoSaveCheckin, updateSavedStatus,
+    // updateCheckinButtonPulse, updateDateLabel, checkNewDay) брал день через
+    // new Date().toISOString().split('T')[0] — это UTC, а история задач/питание/событие дня уже
+    // жили по локальному ключу. В UTC+3 всё, что заполнено между 00:00 и 03:00 ночи, уезжало под
+    // ВЧЕРАШНИЙ ключ: на графике часов сна получались дырки, запись «терялась». Особенно больно
+    // тем, кто ложится под утро — а это ровно наша аудитория (см. время вечерней сводки, Фаза 20).
+    // Уже сохранённые записи при этом НИЧЕГО не теряют: UTC-дата — тоже валидный локальный ключ,
+    // просто указывает на день раньше, и запись видна на нём. Фолбэк «если нет по локальному,
+    // возьми по UTC» на чтении добавлять НЕЛЬЗЯ — он задваивает соседний день, см. коммент в
+    // drawSleepHoursChart.
     const todayKey = () => { const t = new Date(); return fdt(t.getFullYear(), t.getMonth(), t.getDate()); };
     const newUid = () => 'u' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 
@@ -328,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function checkNewDay() {
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKey(); // ЛОКАЛЬНАЯ дата, не UTC — см. коммент у todayKey/fdt
         if (dashState.lastActiveDate !== today) {
             dashState.habits.forEach(h => h.completed = false);
             if (!dashState.checkins) dashState.checkins = {};
@@ -697,7 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateCheckinButtonPulse() {
         const morningBtn = document.getElementById('btn-morning');
         const eveningBtn = document.getElementById('btn-evening');
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKey(); // ЛОКАЛЬНАЯ дата, не UTC — см. коммент у todayKey/fdt
         const history = dashState.checkinHistory || {};
         const todayData = history[today] || {};
         
@@ -718,7 +802,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const labelEl = document.getElementById(`date-label-${type}`);
         if (!labelEl) return;
         
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKey(); // ЛОКАЛЬНАЯ дата, не UTC — см. коммент у todayKey/fdt
         if (!dateStr || dateStr === today) {
             labelEl.textContent = 'Сегодня';
         } else {
@@ -1631,6 +1715,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(x, Math.min(y1, y2), barW, Math.max(1, Math.abs(y2 - y1)));
             return Math.min(y1, y2);
         };
+        // ТОЛЬКО локальный ключ, без фолбэка на UTC. Соблазн добавить такой фолбэк («вдруг запись
+        // сохранена под UTC-датой») ЕСТЬ и он ОШИБОЧЕН: при положительном смещении (Москва +3)
+        // UTC-ключ дня d — это всегда день d-1, поэтому фолбэк не находит потерянное, а
+        // подтягивает на день d честную запись СОСЕДНЕГО дня и рисует её дважды. Проверено на
+        // одной записи: она давала два столбика. Записи, сохранённые старой версией под UTC-датой,
+        // ничего не теряют — эта дата тоже валидный локальный ключ, просто на день раньше.
+        // (У valFor в графике настроения такой фолбэк остался с давних пор — он по той же причине
+        // задваивает точки, но трогать его отдельно, не спросив, не стал.)
         for (let d = 1; d <= days; d++) {
             const rec = hist[fdt(y, m, d)]?.morning;
             if (!rec) continue;
@@ -2349,7 +2441,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const isPro = !!window.hasActiveSubscription || !!familyView;
         // Pro mode: вместо времени приёма пищи (нормальный режим) — счётчик калорий с автокомплитом
         // по FOOD_DB (см. HANDOFF.md — юзер попросил заменить механику именно в Pro mode).
-        if (dashState.psychoMode) { renderFoodCalories(root, viewDate, isHistory, isPro); return; }
+        // FEATURES.foodPro — второй гейт, без него вкладка «Питание» показывала бы счётчик калорий
+        // всякий раз, когда включён Pro-режим ЗАДАЧ: psychoMode один на обе вкладки. Кнопка
+        // #btn-food-pro при этом уже скрыта (см. применение флагов в начале файла), но сюда можно
+        // попасть и без неё — например, если psychoMode остался true с прошлой сессии.
+        if (FEATURES.foodPro && dashState.psychoMode) { renderFoodCalories(root, viewDate, isHistory, isPro); return; }
         const dayRec = dashState.foodLog[viewDate] || {};
 
         // Простые блоки (не график с часовой осью, см. HANDOFF.md §15): сверху время приёма (тот
@@ -3133,6 +3229,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dashState.checkins.evening) dashState.checkins.evening = {};
         if (!dashState.checkinHistory) dashState.checkinHistory = {};
 
+        // Форма рисуется ИСКЛЮЧИТЕЛЬНО из черновика dashState.checkins[type] — а черновик живёт
+        // недолго: checkNewDay() обнуляет его при смене дня, и любой сбой ключа дня (как было с
+        // UTC-датой, см. коммент у todayKey) оставлял юзера перед пустой формой при том, что
+        // запись за сегодня спокойно лежала в checkinHistory. Со стороны это выглядит ровно как
+        // «пропала статистика чек-апа». Поэтому: пустой черновик достраиваем из зафиксированного
+        // лога за сегодня. Непустой не трогаем — он свежее истории по определению.
+        const ckToday = dashState.checkinHistory[todayKey()] || {};
+        ['morning', 'evening'].forEach(p => {
+            if (Object.keys(dashState.checkins[p]).length) return;
+            const saved = ckToday[p];
+            if (!saved) return;
+            dashState.checkins[p] = { ...saved };
+            delete dashState.checkins[p].savedAt; // служебная метка автосохранения, в форме ей делать нечего
+        });
+
         setTimeout(() => {
             const prefix = type;
             const form = document.getElementById(`${prefix}-form`);
@@ -3207,7 +3318,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Коммитит черновик dashState.checkins[type] в постоянную dashState.checkinHistory[сегодня][type]
     // и начисляет +3 XP один раз за день (та же защита от фарма, что была у ручного сохранения).
     function autoSaveCheckin(type) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKey(); // ЛОКАЛЬНАЯ дата, не UTC — см. коммент у todayKey/fdt
         if (!dashState.checkinHistory) dashState.checkinHistory = {};
         if (!dashState.checkinHistory[today]) dashState.checkinHistory[today] = {};
 
@@ -3227,7 +3338,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateSavedStatus(type) {
         const status = document.getElementById(`status-${type}`);
         if (!status || currentHistoryType === type) return;
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayKey(); // ЛОКАЛЬНАЯ дата, не UTC — см. коммент у todayKey/fdt
         const saved = dashState.checkinHistory[today]?.[type];
         status.textContent = saved ? 'Сохранено' : '';
         status.classList.toggle('show', !!saved);
@@ -3780,6 +3891,15 @@ document.addEventListener('DOMContentLoaded', () => {
         { sel: '#btn-food',      view: 'food',    cat: 'food',    pro: false },
         { sel: '#btn-food-pro',  view: 'food',    cat: 'food',    pro: true  },
         { sel: '.view-btn[data-view="pet"]', view: 'pet', cat: 'habits', pro: false },
+        // «Задачи дня» и «Архив событий дня» — тоже вкладка «Задачи»: их рисует
+        // renderDayEventAndTask, а её единственный живой вызов сидит внутри renderTaskDayView.
+        // Без этих двух строк юзер, расшаривший ТОЛЬКО их, получал «Этот человек пока ничем не
+        // поделился»: get_family_state его данные уже отдал по сети, а tabs оказывался пустым и
+        // enterFamilyViewMode возвращал false. То есть две галочки из восьми были мёртвыми, но
+        // приватность при этом всё равно тратилась. Стоят ПОСЛЕ habits/metrics, поэтому вкладка
+        // по умолчанию не меняется; дубль по '#btn-tasks' безвреден — classList.remove идемпотентен.
+        { sel: '#btn-tasks',     view: 'month',   cat: 'dayTasks',        pro: false },
+        { sel: '#btn-tasks',     view: 'month',   cat: 'dayEventHistory', pro: false },
     ];
 
     // Что внутри #dashboard-screen ОСТАЁТСЯ кликабельным в режиме просмотра. Юзер должен свободно
