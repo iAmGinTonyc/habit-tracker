@@ -1,9 +1,15 @@
 // Edge Function: send-daily-summary
 // Дёргается ОТДЕЛЬНЫМ pg_cron (каждые 15 минут, как и send-daily-reminders — см. db/phase12_…sql)
-// в конце локального дня юзера (22:45–22:59, см. get_and_mark_due_summaries) и присылает в бота
-// сводку «что сегодня трогал»: привычки, метрики Pro mode, чек-ап, питание, событие дня. Источник
-// данных — синхронизированный app_state (db/phase11_app_state_sync.sql); без этой синхронизации
-// сервер вообще не видел бы прогресс юзера (раньше он жил только в localStorage браузера).
+// в ЛИЧНОЕ время каждого юзера (profiles.summary_time, по умолчанию 22:45 — Фаза 20,
+// db/phase20_summary_time.sql; раньше окно 22:45–22:59 было зашито в SQL сразу для всех) и
+// присылает в бота сводку «что сегодня трогал»: привычки, метрики Pro mode, чек-ап, питание,
+// событие дня. Источник данных — синхронизированный app_state (db/phase11_app_state_sync.sql);
+// без этой синхронизации сервер вообще не видел бы прогресс юзера (раньше он жил только в
+// localStorage браузера).
+//
+// ВАЖНО: за какой именно день отчёт, функция САМА НЕ СЧИТАЕТ — дату отдаёт RPC полем report_date
+// (у «совы» с временем 04:00 это ВЧЕРАШНЯЯ дата, см. summary_report_date в Фазе 20). Не пытайся
+// вернуть сюда localDateKey(): в 04:00 он дал бы только что начавшийся пустой день.
 //
 // Секреты: TELEGRAM_BOT_TOKEN (тот же, что у остальных функций), TELEGRAM_SUMMARY_CRON_SECRET
 // (свой, отдельный от TELEGRAM_REMINDER_CRON_SECRET — на случай, если понадобится включать/выключать
@@ -12,6 +18,9 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { logError } from '../_shared/logError.ts';
+// Сам текст сводки собирает общий модуль — тот же, что у сводки по запросу (send-summary-now),
+// чтобы два формата отчёта не разъехались (Фаза 20).
+import { buildSummaryText } from '../_shared/summaryText.ts';
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const CRON_SECRET = Deno.env.get('TELEGRAM_SUMMARY_CRON_SECRET') ?? '';
@@ -23,153 +32,10 @@ interface DueRow {
   user_id: string;
   telegram_id: number;
   timezone: string;
-}
-
-// deno-lint-ignore no-explicit-any
-type AnyState = Record<string, any>;
-
-// Сегодняшний ключ ('YYYY-MM-DD') в ЛОКАЛЬНОМ дне юзера — тот же формат, что и todayKey()/fdt() в
-// habbittracker.js, иначе не совпадёт с ключами внутри самого app_state.data.
-function localDateKey(timeZone: string): string {
-  // en-CA форматирует даты как YYYY-MM-DD "из коробки" — не нужно вручную собирать строку.
-  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
-}
-
-// «3 августа, понедельник» — тот же формат/те же массивы, что у formatFullDate в habbittracker.js
-// (см. FULL_MONTH_NAMES/FULL_WD_NAMES там), юзер попросил указывать день и дату в самой сводке.
-// Парсим todayKey руками (new Date('YYYY-MM-DD') читается как UTC-полночь — с датой в других
-// таймзонах может съехать на день, тут просто split по частям, без учёта TZ вообще).
-const FULL_MONTH_NAMES = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const FULL_WD_NAMES = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
-function formatFullDate(dateKey: string): string {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  return `${d} ${FULL_MONTH_NAMES[dt.getMonth()]}, ${FULL_WD_NAMES[dt.getDay()]}`;
-}
-
-// Экранирование для Telegram parse_mode:'HTML' — только &/</> обязательны (см. доки Bot API),
-// без этого свободный текст юзера (название привычки/еды, событие дня и т.п.) с символами
-// < > & сломал бы разметку письма или вообще уронил бы отправку целиком.
-function escHtml(s: unknown): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// «4:00-11:30 (+2 часа) Общее: 9:30 ч» — юзер попросил одной строкой вместо трёх (лёг/встал/
-// урывками). Часы/минуты — те же вычисления, что у drawSleepHoursChart в habbittracker.js (учёт
-// сна через полночь: wakeH<=sleepH → сон длился до 24:00 следующего дня).
-function parseHM(s?: string): number | null {
-  if (!s) return null;
-  const [hh, mm] = s.split(':').map(Number);
-  return isNaN(hh) ? null : hh + (mm || 0) / 60;
-}
-const stripLeadingZero = (t: string) => t.replace(/^0(\d:)/, '$1'); // "04:00" → "4:00"
-function fmtDurationHM(hoursFloat: number): string {
-  const totalMin = Math.round(hoursFloat * 60);
-  return `${Math.floor(totalMin / 60)}:${String(totalMin % 60).padStart(2, '0')}`;
-}
-function pluralHours(n: number): string {
-  if (!Number.isInteger(n)) return 'часа'; // дробные (1.5, 2.5…) — общепринято родительный ед.ч.
-  const mod10 = n % 10, mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 14) return 'часов';
-  if (mod10 === 1) return 'час';
-  if (mod10 >= 2 && mod10 <= 4) return 'часа';
-  return 'часов';
-}
-
-// Собирает читаемый текст сводки из СЕГОДНЯШНЕГО среза dashState. Возвращает null, если сегодня
-// вообще ничего не трогал — пустой отчёт слать не имеет смысла (см. вызов ниже). Заголовки блоков
-// — жирным (HTML <b>, см. parse_mode в sendMessage ниже) + эмодзи, юзер попросил визуально
-// разделить секции. Сами заголовки — статичные строки без пользовательского ввода, escHtml им не
-// нужен; экранируем только то, что реально пришло из dashState.
-function buildSummaryText(state: AnyState, todayKey: string): string | null {
-  const sections: string[] = [];
-
-  // Задачи, отмеченные сегодня (dashState.history[date][uid] = true)
-  const historyToday = (state.history || {})[todayKey] || {};
-  const habitLines = (state.habits || [])
-    .filter((h: AnyState) => historyToday[h.uid])
-    .map((h: AnyState) => `✅ ${escHtml(h.text)}`);
-  if (habitLines.length) sections.push('<b>📋 Задачи:</b>\n' + habitLines.join('\n'));
-
-  // Разовые задачи на сегодня (dashState.habits с type:'oneTime' и date===todayKey, см.
-  // renderTaskDayView/openNewHabitModal в habbittracker.js) — юзер попросил слать их отдельным
-  // списком, ОБА исхода: выполненные (✅) и невыполненные (тег #невыполнено — тем же тегом
-  // помечены и невыполненные «Задачи дня» ниже). У обычных регулярных задач (раздел «Задачи»
-  // выше) нет понятия «дедлайн на сегодня», поэтому «невыполнено» для них не считаем — только
-  // для разовых, у которых date жёстко привязан к конкретному дню.
-  const oneTimeToday = (state.habits || []).filter((h: AnyState) => h.type === 'oneTime' && h.date === todayKey);
-  if (oneTimeToday.length) {
-    const oneTimeLines = oneTimeToday.map((h: AnyState) => (historyToday[h.uid] ? `✅ ${escHtml(h.text)}` : `#невыполнено ${escHtml(h.text)}`));
-    sections.push('<b>📌 Разовые задачи:</b>\n' + oneTimeLines.join('\n'));
-  }
-
-  // Числовые метрики Pro mode (dashState.metricLog[date][metricId] = число)
-  const metricLogToday = (state.metricLog || {})[todayKey] || {};
-  const metricLines = (state.metrics || [])
-    .map((m: AnyState) => {
-      const v = metricLogToday[m.id];
-      if (v === undefined || v === null || v === '' || v === 0) return null;
-      return `${escHtml(m.name)}: ${escHtml(v)}${m.unit ? ' ' + escHtml(m.unit) : ''}`;
-    })
-    .filter(Boolean);
-  if (metricLines.length) sections.push('<b>📊 Показатели:</b>\n' + metricLines.join('\n'));
-
-  // Чек-ап дня (dashState.checkinHistory[date].morning) — построчно, сон (лёг/встал/урывками)
-  // юзер попросил свести в одну строку вида «4:00-11:30 (+2 часа) Общее: 9:30 ч».
-  const morning = ((state.checkinHistory || {})[todayKey] || {}).morning;
-  if (morning) {
-    const parts: string[] = [];
-    const sleepH = parseHM(morning.sleepTime);
-    const wakeH = parseHM(morning.wakeTime);
-    const extra = parseFloat(morning.extraSleepHours) || 0;
-    if (sleepH != null && wakeH != null) {
-      const mainDur = wakeH <= sleepH ? (24 - sleepH) + wakeH : wakeH - sleepH; // сон через полночь
-      let line = `${stripLeadingZero(morning.sleepTime)}-${stripLeadingZero(morning.wakeTime)}`;
-      if (extra > 0) line += ` (+${escHtml(morning.extraSleepHours)} ${pluralHours(extra)})`;
-      line += ` Общее: ${fmtDurationHM(mainDur + extra)} ч`;
-      parts.push(line);
-    } else {
-      // Половина данных (только «лёг» или только «встал», без пары) — единую строку с диапазоном
-      // не собрать, показываем что есть по отдельности, как раньше.
-      if (morning.sleepTime) parts.push(`лёг в ${escHtml(morning.sleepTime)}`);
-      if (morning.wakeTime) parts.push(`встал в ${escHtml(morning.wakeTime)}`);
-      if (morning.extraSleepHours) parts.push(`+${escHtml(morning.extraSleepHours)} ч сна урывками`);
-    }
-    if (morning.mood) parts.push(`настроение ${escHtml(morning.mood)}/10`);
-    if (morning.sleepQuality) parts.push(`сон ${escHtml(morning.sleepQuality)}/10`);
-    if (morning.energy) parts.push(`энергия ${escHtml(morning.energy)}/10`);
-    if (morning.health) parts.push(`здоровье ${escHtml(morning.health)}/10`);
-    if (parts.length) sections.push('<b>🌙 Чек-ап:</b>\n' + parts.join('\n'));
-  }
-
-  // Питание (dashState.foodLog[date] = { blockId: {time, text}, ... }) — блоков теперь
-  // произвольное число и без фиксированных id/названий (юзер убрал «Завтрак/Обед/Ужин» и добавил
-  // кнопку «+ добавить приём пищи» в habbittracker.js, см. getMealSlots/addMealSlot), поэтому
-  // берём все заполненные записи дня по порядку времени, а не жёстко закреплённые 3 id.
-  const foodToday = (state.foodLog || {})[todayKey] || {};
-  const foodLines = Object.values(foodToday as Record<string, { time?: string; text?: string }>)
-    .filter((rec) => rec && (rec.time || rec.text))
-    .sort((a, b) => (a.time || '99').localeCompare(b.time || '99'))
-    .map((rec) => `${rec.time ? `${escHtml(rec.time)}` : 'без времени'}${rec.text ? `: ${escHtml(rec.text)}` : ''}`);
-  if (foodLines.length) sections.push('<b>🍽 Питание:</b>\n' + foodLines.join('\n'));
-
-  // Событие дня (dashState.dayEvents[date])
-  const dayEvent = (state.dayEvents || {})[todayKey];
-  if (dayEvent) sections.push(`<b>🎉 Событие дня:</b>\n${escHtml(dayEvent)}`);
-
-  // Задачи дня (dashState.dayTasks[date] = [{text, done}], см. getDayTasks в habbittracker.js —
-  // старый формат единичного объекта без массива сюда почти не долетит, но на всякий случай тоже
-  // разворачиваем). Тот же тег #невыполнено, что и у разовых задач выше — юзер попросил
-  // унифицировать оба списка.
-  const rawDayTasks = (state.dayTasks || {})[todayKey];
-  const dayTasksToday: AnyState[] = Array.isArray(rawDayTasks) ? rawDayTasks : (rawDayTasks && rawDayTasks.text ? [rawDayTasks] : []);
-  if (dayTasksToday.length) {
-    const taskLines = dayTasksToday.map((t) => (t.done ? `✅ ${escHtml(t.text)}` : `#невыполнено ${escHtml(t.text)}`));
-    sections.push('<b>🎯 Задачи дня:</b>\n' + taskLines.join('\n'));
-  }
-
-  if (!sections.length) return null;
-  return `<b>Итоги дня, ${formatFullDate(todayKey)}:</b>\n\n` + sections.join('\n\n');
+  // Дату отчёта считает SQL (summary_report_date, db/phase20_summary_time.sql), а не эта функция —
+  // у «совы» с summary_time 04:00 тут будет ВЧЕРАШНЯЯ локальная дата. timezone оставлен только
+  // для диагностики в логах.
+  report_date: string;
 }
 
 Deno.serve(async (req) => {
@@ -193,9 +59,10 @@ Deno.serve(async (req) => {
         const { data: stateRow } = await admin.from('app_state').select('data').eq('user_id', row.user_id).maybeSingle();
         if (!stateRow || !stateRow.data) continue; // ещё ни разу не синкал прогресс — нечего показывать
 
-        const todayKey = localDateKey(row.timezone);
-        const text = buildSummaryText(stateRow.data, todayKey);
-        if (!text) continue; // сегодня ничего не трогал — пустой отчёт не шлём
+        // Дату берём из RPC (report_date), а не из локального времени — иначе сводка «совы» в
+        // 04:00 читала бы ключи только что начавшегося дня и всегда была бы пустой.
+        const text = buildSummaryText(stateRow.data, row.report_date);
+        if (!text) continue; // в этот день ничего не трогал — пустой отчёт не шлём
 
         const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
           method: 'POST',

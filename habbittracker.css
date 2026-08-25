@@ -23,6 +23,26 @@
    .hint-text { position: absolute; bottom: 40px; right: 60px; font-size: 14px; color: #999; font-weight: 300; letter-spacing: 0.5px; opacity: 0.7; animation: pulse 3s ease-in-out infinite; }
    @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.8; } }
 
+   /* --- ФОТО ГЛАВНОГО ЭКРАНА ---
+      Юзер попросил заменить белый стартовый экран своей фотографией (та же картинка стоит и под
+      стартовым лоадером, см. .loading-overlay ниже). Фото приезжает data-URL'ом в переменную
+      --intro-photo: её вместе с классом .has-intro-photo на <html> ставит инлайн-скрипт в <head>
+      index.html (ДО первой отрисовки) и applyIntroPhoto() в habbittracker.js (при смене фото в
+      профиле — чтобы результат был виден сразу, без перезагрузки).
+      Тёмный слой linear-gradient поверх снимка обязателен: заголовок «Live Life» и подзаголовок
+      на светлой фотографии иначе нечитаемы. background-color:#000 — подложка на те доли секунды,
+      пока большой data-URL ещё декодируется.
+      ВАЖНО: селекторы скоупим на #intro-screen. Классы .intro-content/.intro-title/.intro-lead
+      переиспользуют ещё #web-only-screen и #paywall-screen (см. index.html) — без скоупа у них
+      заголовки стали бы белыми на белом фоне. */
+   html.has-intro-photo #intro-screen { background-color: #000; background-image: linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), var(--intro-photo); background-size: cover; background-position: center; background-repeat: no-repeat; }
+   html.has-intro-photo #intro-screen .intro-title { color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,0.55); }
+   html.has-intro-photo #intro-screen .intro-lead { color: rgba(255,255,255,0.92); text-shadow: 0 1px 10px rgba(0,0,0,0.5); }
+   html.has-intro-photo #intro-screen .hint-text { color: rgba(255,255,255,0.9); text-shadow: 0 1px 8px rgba(0,0,0,0.5); }
+   /* body белый (см. начало файла) и на кадр-другой может мелькнуть между разбором <head> и
+      появлением #intro-screen — красим и его, иначе белая вспышка возвращается именно там. */
+   html.has-intro-photo body { background-color: #000; }
+
    /* Экран «только в Telegram» — показывается вместо интро при заходе не из Telegram Mini App */
    #web-only-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: #fff; }
    .web-only-btn { display: inline-block; margin-top: 22px; padding: 12px 28px; background: #111; color: #fff; text-decoration: none; border-radius: 999px; font-size: 15px; font-weight: 500; transition: opacity 0.2s ease; }
@@ -141,16 +161,36 @@
    #dashboard-screen.visible { opacity: 1; pointer-events: auto; }
    .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 3000; display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
    .loading-overlay.active { opacity: 1; pointer-events: auto; }
+   /* Тот же фон, что и у интро (см. --intro-photo в блоке «ЭКРАН 1: ИНТРО»). Для ВОЗВРАЩАЮЩЕГОСЯ
+      юзера это вообще единственное, что он видит на старте: init() у него сразу зовёт
+      showDashboard() (интро скрыто), и все ~3 секунды ожидания облака на экране висит именно этот
+      оверлей — см. initBootLoader в habbittracker.js. Без этой правки фото видел бы только новый
+      юзер, а тот самый «белый экран при открытии», на который жаловался юзер, остался бы на месте. */
+   html.has-intro-photo .loading-overlay { background-color: #000; background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), var(--intro-photo); background-size: cover; background-position: center; background-repeat: no-repeat; }
+   html.has-intro-photo .loading-text { color: #fff; text-shadow: 0 1px 10px rgba(0,0,0,0.5); }
 
    /* Панель подтверждения над цифровой клавиатурой (см. initNumericKeyboardBar в habbittracker.js).
       position:fixed + bottom, который каждый раз пересчитывается по visualViewport — на iOS
       fixed-элементы НЕ поднимаются над клавиатурой сами, поэтому позиция задаётся из JS.
       z-index выше модалок (.habit-settings-modal — 2000), иначе панель пряталась бы под
       открытой модалкой настроек, где как раз и живут числовые поля. */
-   .kb-accept-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4000; display: none; padding: 8px 12px; background: #fff; border-top: 1px solid #ececec; }
+   .kb-accept-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 4000; display: none; padding: 8px 12px; background: none; border-top: none; pointer-events: none; }
    .kb-accept-bar.show { display: block; }
-   .kb-accept-bar button { width: 100%; height: 42px; border: none; border-radius: 9px; background: #111; color: #fff; font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
-   .kb-accept-bar.is-cancel button { background: #fff; color: #666; border: 1px solid #e0e0e0; }
+   /* Белого контейнера у полосы больше нет (юзер: «убери белый контейнер вне кнопки „принять
+      изменения“, сделай просто небольшую белую рамку самой кнопки») — рамкой стал бордер самой
+      кнопки. Из-за этого полоса, растянутая на всю ширину экрана, теперь невидима, и без
+      pointer-events:none она молча съедала бы тапы по странице слева и справа от кнопки;
+      pointer-events возвращаем ТОЛЬКО кнопке. Если когда-нибудь положишь в бар второй элемент —
+      ему тоже нужен pointer-events:auto.
+      Белая рамка + тень нужны, чтобы чёрная кнопка читалась поверх любого фона (клавиатура на
+      iOS светло-серая, в тёмной теме — почти чёрная). box-sizing:border-box глобальный (см.
+      начало файла), поэтому рамка не меняет высоту 42px. */
+   .kb-accept-bar button { pointer-events: auto; width: 100%; height: 42px; border: 2px solid #fff; border-radius: 9px; background: #111; color: #fff; font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer; box-shadow: 0 2px 12px rgba(0,0,0,0.28); }
+   /* «Отменить ввод» (поле пустое, см. refresh() в initNumericKeyboardBar). Раньше вариант был
+      белый с серой рамкой — это работало только потому, что под ним лежала белая полоса; на
+      прозрачном фоне он стал бы белым по белому и пропал. Делаем тёмный полупрозрачный фон с той
+      же белой рамкой — то же семейство, но явно вторичная кнопка. */
+   .kb-accept-bar.is-cancel button { background: rgba(17,17,17,0.72); color: rgba(255,255,255,0.85); border: 2px solid rgba(255,255,255,0.75); box-shadow: 0 2px 12px rgba(0,0,0,0.22); }
    .loading-text { font-size: 24px; font-style: italic; color: #666; animation: pulseText 2s infinite; }
    @keyframes pulseText { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
    
@@ -957,6 +997,12 @@ canvas { width: 100%; height: 150px; }
    .fam-invite-btn:hover { opacity: 0.85; }
    .fam-invite-msg { font-size: 12px; color: #888; min-height: 15px; margin: 6px 0 2px; }
    .fam-h { font-size: 12px; color: #999; margin: 14px 0 6px; }
+   /* Заголовок «Семья» + кнопка «Редактировать доступ» в одну строку (Фаза 19). Собственный
+      margin у .fam-h внутри строки обнуляем — вертикальный ритм задаёт сама строка. */
+   .fam-h-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 14px 0 6px; }
+   .fam-h-row .fam-h { margin: 0; }
+   .fam-access-btn { flex: 0 0 auto; border: none; background: none; padding: 0; color: #111; font-family: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+   .fam-access-btn:hover { color: #666; }
    .fam-friend { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
    .fam-friend-info { min-width: 0; }
    .fam-fam-btn { flex: 0 0 auto; border: 1px solid #e0e0e0; background: #fff; color: #111; font-family: inherit; font-size: 12px; padding: 6px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
@@ -967,6 +1013,107 @@ canvas { width: 100%; height: 150px; }
    .fam-day-event { font-size: 12px; color: #999; margin-top: 4px; font-style: italic; overflow-wrap: break-word; }
    .fam-empty { font-size: 12px; color: #ccc; padding: 8px 0; }
    .fam-fam-waiting { flex: 0 0 auto; font-size: 12px; color: #bbb; white-space: nowrap; }
+   /* У карточки члена семьи теперь ДВЕ кнопки («Посмотреть» + «Удалить из семьи», Фаза 19) —
+      ставим их колонкой, иначе на узком экране Telegram-вебвью строка переносится и разъезжается. */
+   .fam-friend-actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+   .fam-friend-actions .fam-fam-btn { width: 100%; }
+   .fam-view-msg { font-size: 12px; color: #888; min-height: 15px; margin: 6px 0 0; }
+
+   /* Попап «Редактировать доступ» (Фаза 19) — что именно из моего трекера видит семья.
+      Разметка/поведение по образцу .habit-settings-modal, но z-index 2950: выше .auth-modal
+      (2900), из которой попап и открывается, и ниже .loading-overlay (3000). */
+   .fam-access-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 2950; align-items: center; justify-content: center; padding: 20px; }
+   .fam-access-modal.active { display: flex; }
+   .fam-access-card { position: relative; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); padding: 24px 22px 20px; width: 340px; max-width: 100%; max-height: 88vh; overflow-y: auto; }
+   .fam-access-lead { font-size: 12px; color: #888; line-height: 1.45; margin: 0 0 14px; }
+   .fam-access-list { display: flex; flex-direction: column; }
+   /* Строка — <button>, а не <label> с нативным чекбоксом: попадать пальцем в 16-пиксельный
+      квадратик на телефоне неудобно, тут кликается вся строка целиком. Галочку рисуем сами
+      (.fam-access-box) — нативный чекбокс всё равно пришлось бы перекрашивать под ч/б макет. */
+   .fam-access-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 0; border: none; border-bottom: 1px solid #f5f5f5; background: none; font-family: inherit; text-align: left; cursor: pointer; }
+   .fam-access-box { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; border: 1px solid #ccc; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; color: #fff; }
+   .fam-access-row.on .fam-access-box { background: #111; border-color: #111; }
+   .fam-access-text { min-width: 0; display: flex; flex-direction: column; }
+   .fam-access-title { font-size: 14px; color: #111; }
+   .fam-access-hint { font-size: 11px; color: #999; margin-top: 2px; line-height: 1.35; }
+   .fam-access-full { width: 100%; height: 40px; border: 1px solid #111; background: #fff; color: #111; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 16px; }
+   .fam-access-full:hover { background: #111; color: #fff; }
+   .fam-access-full:disabled { border-color: #e0e0e0; color: #ccc; cursor: default; background: #fff; }
+   /* Второй тап подтверждает — «Дать полный доступ» одним движением открывает семье питание,
+      чек-ап и всю историю задач, а отката в один клик нет (снимать пришлось бы галочками). */
+   .fam-access-full.confirming { background: #111; color: #fff; }
+   .fam-access-done { width: 100%; height: 40px; border: none; background: #111; color: #fff; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; margin-top: 10px; }
+   .fam-access-msg { font-size: 12px; color: #888; min-height: 15px; margin-top: 10px; }
+
+   /* Фото главного экрана — секция в профиле (см. initIntroPhoto в habbittracker.js). Разметка
+      переиспользует .fam-section (та же разделительная линия сверху) и .auth-copy (та же кнопка),
+      своего тут только превью. Превью вертикальное 9:16 — юзер должен сразу видеть, как кадр
+      ляжет на телефонный экран, а не квадратный кроп. */
+   .intro-photo-row { display: flex; gap: 12px; align-items: center; }
+   .intro-photo-preview { flex: 0 0 54px; width: 54px; height: 96px; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #fafafa; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; }
+   .intro-photo-preview span { font-size: 10px; color: #bbb; text-align: center; line-height: 1.25; padding: 0 4px; }
+   .intro-photo-preview.has-photo span { display: none; }
+   .intro-photo-actions { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+   .intro-photo-actions .auth-copy { margin-top: 0; } /* у .auth-copy свой margin-top:16px — в колонке с gap он даёт кривой отступ */
+   .intro-photo-msg { font-size: 12px; color: #999; margin-top: 8px; line-height: 1.35; min-height: 16px; }
+
+   /* «Итоги дня в боте» — своё время вечерней сводки + кнопка «прислать сейчас» (Фаза 20).
+      Только border-bottom: у .sub-section ниже своих рамок нет намеренно (см. коммент там), а
+      border-top здесь дал бы двойную линию под именем профиля. */
+   .summary-section { margin: 14px 0 8px; padding-bottom: 14px; border-bottom: 1px solid #f1f1f1; }
+   .summary-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+   .summary-row label { font-size: 13px; color: #888; }
+   .summary-time-input { width: 96px; height: 34px; border: 1px solid #e0e0e0; border-radius: 8px; font-family: inherit; font-size: 14px; color: #111; text-align: center; background: #fff; }
+   /* accent-color — иначе нативная галочка синяя, а весь профиль строго ч/б */
+   .summary-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: #111; }
+   .summary-time-input:disabled { color: #ccc; background: #fafafa; }
+   .summary-hint { font-size: 11px; color: #bbb; line-height: 1.4; margin-top: 8px; }
+   .summary-msg { font-size: 12px; color: #888; min-height: 15px; margin-top: 8px; }
+
+   /* Режим «смотрю чужой экран» (Фаза 19, кнопка «Посмотреть» в семье). Плашка сверху дашборда —
+      единственный способ выйти обратно к себе, поэтому она fixed и всегда поверх контента. */
+   .family-view-banner { display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 2100; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 14px; background: #111; color: #fff; font-size: 13px; line-height: 1.25; }
+   body.family-view .family-view-banner { display: flex; }
+   /* Имя может быть длинным (до 30 символов) — многоточием режем ИМЕННО его, а «только просмотр»
+      живёт отдельной строкой ниже и не пропадает никогда (см. enterFamilyViewMode). */
+   .family-view-banner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+   .family-view-banner-sub { font-size: 11px; opacity: 0.65; }
+   .family-view-exit { flex: 0 0 auto; border: 1px solid rgba(255,255,255,0.5); background: none; color: #fff; font-family: inherit; font-size: 12px; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+   .family-view-exit:hover { background: rgba(255,255,255,0.15); }
+   /* Резерв под плашку, чтобы она не накрывала верхний ряд дашборда. Высоту меряет JS и кладёт
+      в --family-view-banner-h: плашка переносится на две-три строки, если имя длинное (до 30
+      символов), фиксированное число тут рано или поздно оказалось бы мало. */
+   body.family-view #dashboard-screen { padding-top: var(--family-view-banner-h, 54px); }
+   /* Кнопка таб-бара, скрытая на время просмотра (раздел не расшарен). !important нужен потому,
+      что фиче-флаги в начале habbittracker.js прячут часть кнопок ИНЛАЙН-стилем — обычный класс
+      инлайн не перебьёт, а выход из режима не должен «воскрешать» скрытые флагами кнопки. */
+   .view-btn.fv-hidden { display: none !important; }
+   /* Свой профиль из чужого экрана не открываем — единственный путь назад это «Вернуться к себе».
+      visibility, а не display: кнопка держит место в .dash-toprow, шапка не прыгает. */
+   body.family-view #profile-btn, body.family-view #help-btn { visibility: hidden; }
+   /* Только чтение обеспечивает НЕ CSS, а familyViewEventGuard в habbittracker.js: он глушит
+      события на capture-фазе по белому списку навигации (FAMILY_VIEW_ALLOWED). Блэнкетного
+      pointer-events:none тут сознательно НЕТ — он погасил бы и разрешённую навигацию (стрелки
+      месяца, «День/Месяц», календарь истории), а точечный белый список в CSS пришлось бы держать
+      в синхроне со вторым таким же списком в JS. Здесь остаётся только то, что чистая косметика. */
+   body.family-view .dash-content input,
+   body.family-view .dash-content textarea,
+   body.family-view .dash-content [contenteditable] { caret-color: transparent; }
+   /* Кнопки, которые ПРЕДЛАГАЮТ что-то создать или изменить, на чужом экране прячем совсем.
+      familyViewEventGuard их клики и так глушит, но оставлять на виду «+ добавить задачу» и
+      многоточие настроек — значит обещать действие, которое не сработает: юзер решит, что
+      приложение сломалось. Это только про КНОПКИ-ДЕЙСТВИЯ; вся навигация (стрелки дня/месяца,
+      «День/Месяц», календари истории) остаётся на месте — чужой экран нужно листать. */
+   body.family-view .dash-habit-add-btn,   /* «+ добавить задачу» и «+ добавить приём пищи» */
+   body.family-view .task-day-settings,    /* «…» у задачи в списке дня */
+   body.family-view .habit-settings-icon,  /* «…» у задачи в дневном виде */
+   body.family-view .hm-settings,          /* «…» в месячной тепловой карте */
+   body.family-view .day-event-btn,        /* «Событие дня» / «Задача дня» — обе на этом классе */
+   body.family-view .psycho-add,
+   body.family-view .psycho-add-btn,       /* «+ добавить показатель» в Pro mode */
+   body.family-view .metric-add,
+   body.family-view .cal-add-row,          /* добавление позиции в счётчик калорий */
+   body.family-view .checkin-save-wrapper { display: none !important; } /* статус автосохранения чек-апа */
 
    .onb-hint { display: none; align-items: center; gap: 12px; background: #f5f5f5; border: 1px solid #ececec; border-radius: 10px; padding: 10px 12px; margin: 0 0 14px; font-size: 13px; color: #444; line-height: 1.45; }
    .onb-hint-text { flex: 1; }

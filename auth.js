@@ -225,23 +225,28 @@ async function refresh() {
     // наверняка уже есть (см. handle_new_user), падение сразу после verifyOtp обычно значит
     // просто «сессия ещё не до конца устаканилась», а не реальное отсутствие профиля (репорт
     // юзера 30.07.2026: «нет профиля», хотя строка в profiles на самом деле была).
-    let pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+    let pr = await withTimeout(sb.from('profiles').select('invite_id, display_name, summary_time, summary_enabled').eq('id', me).single(), 4000);
     if (pr !== TIMED_OUT && pr.error) {
       await new Promise(r => setTimeout(r, 800));
-      pr = await withTimeout(sb.from('profiles').select('invite_id, display_name').eq('id', me).single(), 4000);
+      pr = await withTimeout(sb.from('profiles').select('invite_id, display_name, summary_time, summary_enabled').eq('id', me).single(), 4000);
     }
-    if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; }
+    // fillSummarySettings(null) в ветке таймаута обязателен: без него поле времени осталось бы
+    // пустым, а событие change на пустом <input type="time"> записало бы в not null колонку мусор.
+    if (pr === TIMED_OUT) { $('prof-id').textContent = 'не удалось загрузить (обнови страницу)'; fillSummarySettings(null); }
     else {
       const { data, error } = pr;
       $('prof-id').textContent = (!error && data && data.invite_id) ? data.invite_id : 'нет профиля — запусти SQL в Supabase';
       myDisplayName = (!error && data && data.display_name) ? data.display_name : null;
       $('prof-name-input').value = myDisplayName || defaultName();
+      fillSummarySettings(error ? null : data); // время «итогов дня» + тумблер (Фаза 20)
     }
     syncMyStats();  // отправить свою сводку в облако
     loadFamily();   // входящие приглашения + семья
+    loadFamilyShare(); // мои настройки «что видит семья» для попапа «Редактировать доступ» (Фаза 19)
     loadSubscription(); // статус триала/подписки
     syncTimezoneAndActivity(); // для ежедневного пуш-напоминания в 20:00 по локали (Фаза 8)
     loadAppState(); // синхронизация всего прогресса между устройствами (Фаза 11)
+    loadIntroPhoto(); // облачная копия фото главного экрана (Фаза 22)
   } catch (e) {
     console.error('refresh() упал —', e);
     $('auth-checking').style.display = 'block';
@@ -277,6 +282,15 @@ function syncStats() { clearTimeout(syncTimer); syncTimer = setTimeout(syncMySta
 window.syncStats = syncStats;
 async function syncMyStats() {
   if (!me || !window.getSummary) return;
+  // Идёт просмотр экрана члена семьи (Фаза 19, habbittracker.js enterFamilyViewMode) — глобальный
+  // dashState сейчас ЧУЖОЙ, а window.getSummary() читает именно его. Дебаунс-таймер мог быть
+  // заведён ДО входа в режим и сработать уже внутри — тогда в мою строку stats уехали бы чужие
+  // серия/процент недели/настроение/событие дня, и это увидела бы вся моя семья. Пропущенный синк
+  // не теряется: сводка пересчитывается при каждом saveProgress() и при каждом refresh()/входе.
+  // pushAppState ниже такой проверки НЕ требует — он пушит объект, захваченный в момент
+  // планирования (всегда моё состояние), а нового пуша в режиме просмотра не заводится:
+  // saveProgress() в habbittracker.js там жёсткий no-op.
+  if (window.familyViewMode) return;
   const s = window.getSummary();
   // level больше не шлём — механика уровней убрана из семейного вида по просьбе юзера (в самом
   // приложении она и так уже скрыта FEATURES.xpLevels, семья была единственной оставшейся утечкой).
@@ -365,14 +379,146 @@ function unsubscribeAppStateRealtime() {
 // profile update из phase1 уже разрешает владельцу писать любые колонки своей строки). Серверный
 // cron (get_and_mark_due_reminders, db/phase8_…sql) сам решает, кому и когда слать сообщение —
 // клиент только сообщает часовой пояс и факт «был здесь только что».
+// Троттл на 5 минут: с Фазы 21 эта функция зовётся ещё и на visibilitychange (см. ниже), а
+// сворачивание/разворачивание Telegram — событие частое. Раз в 5 минут для порога «12 часов
+// отсутствия» точнее некуда, а лишний update в profiles на каждое переключение приложения — нет.
+let lastSeenSentAt = 0;
 function syncTimezoneAndActivity() {
   if (!me) return;
+  if (Date.now() - lastSeenSentAt < 5 * 60 * 1000) return;
   let tz;
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return; }
   if (!tz) return;
+  lastSeenSentAt = Date.now();
   sb.from('profiles').update({ timezone: tz, last_seen_at: new Date().toISOString() }).eq('id', me)
     .then(({ error }) => { if (error) console.error('syncTimezoneAndActivity:', error.message); });
 }
+
+// === ИТОГИ ДНЯ В БОТЕ: своё время отправки + сводка по запросу (Фаза 20) ===
+// Раньше время было ЖЁСТКО зашито в SQL (окно 22:45–22:59 в старой get_and_mark_due_summaries,
+// db/phase12_daily_summary.sql). Просьба юзера: «некоторые люди ложаться спать в 4 ночи, нужно чтоб
+// они во время получали уведомления о статистике за день». Теперь время лежит в
+// profiles.summary_time, а правило «за какой день отчёт» считает SQL (summary_report_date,
+// db/phase20_summary_time.sql): время РАНЬШЕ 12:00 = отчёт за ПРОШЕДШИЙ день, 12:00 и позже = за
+// текущий. Клиент это правило НЕ дублирует — только объясняет словами в .summary-hint (index.html).
+// FUNCTION_ERROR_MESSAGES и readFunctionErrorBody, которыми пользуется requestSummaryNow, объявлены
+// ниже по файлу, в секции подписки — на момент вызова (клик по кнопке) они давно инициализированы.
+const SUMMARY_TIME_DEFAULT = '22:45'; // ДЕРЖАТЬ В СИНХРОНЕ с default у profiles.summary_time (Фаза 20)
+
+function fillSummarySettings(prof) {
+  // Нет профиля/поля (старый ответ, таймаут) — считаем включённым: в БД default true, врать в
+  // обратную сторону нельзя, иначе юзер решит, что сводка выключена, и полезет её «чинить».
+  const enabled = !prof || prof.summary_enabled !== false;
+  // Postgres отдаёт time как 'HH:MM:SS'. <input type="time"> без step секунды не показывает и
+  // молча их отбрасывает — но тогда value поля и значение в БД перестают совпадать посимвольно,
+  // поэтому режем сами.
+  const t = ((prof && prof.summary_time) || SUMMARY_TIME_DEFAULT).slice(0, 5);
+  $('summary-enabled-toggle').checked = enabled;
+  $('summary-time-input').value = t;
+  $('summary-time-input').disabled = !enabled; // как у настроек задачи: выключен тумблер — время серое
+}
+
+async function saveSummarySettings() {
+  if (!me) return;
+  const msg = $('summary-msg');
+  const enabled = $('summary-enabled-toggle').checked;
+  $('summary-time-input').disabled = !enabled;
+  // Юзер мог стереть время в пикере — в not null колонку писать нечего, откатываемся на дефолт и
+  // сразу показываем это в поле, чтобы UI и БД не разошлись.
+  if (!$('summary-time-input').value) $('summary-time-input').value = SUMMARY_TIME_DEFAULT;
+  const time = $('summary-time-input').value;
+  const { error } = await sb.from('profiles').update({ summary_time: time, summary_enabled: enabled }).eq('id', me);
+  if (error) { msg.textContent = 'Ошибка: ' + error.message; return; }
+  msg.textContent = enabled ? `Итоги дня будут приходить в ${time}` : 'Итоги дня отключены';
+  setTimeout(() => { if (msg.textContent.indexOf('Итоги дня') === 0) msg.textContent = ''; }, 2500);
+}
+
+// «Прислать сводку сейчас» — тот же текст, что и у вечерней рассылки (общий buildSummaryText в
+// supabase/functions/_shared/summaryText.ts), но по кнопке. Антиспам двойной: здесь — блокировка
+// кнопки на время запроса (защита от дабл-тапа по инерции на телефоне), и на сервере — не чаще
+// раза в минуту (claim_summary_ondemand). Одной клиентской защиты мало: её обходит кто угодно из
+// консоли, а каждая сводка — это и вызов Edge Function, и сообщение в чат.
+let summaryNowBusy = false;
+async function requestSummaryNow() {
+  if (!me || summaryNowBusy) return;
+  const msg = $('summary-msg'), btn = $('summary-now-btn');
+  summaryNowBusy = true; btn.disabled = true; msg.textContent = 'Отправляем…';
+  try {
+    const { data, error } = await sb.functions.invoke('send-summary-now'); // тела нет — функция его и не читает
+    // Тот же разбор ошибок, что и в purchasePlan: при non-2xx supabase-js всегда кладёт в
+    // error.message общее «Edge Function returned a non-2xx status code», реальный код — в теле.
+    // Ветвимся по `error || !data || data.error`, а НЕ по одному лишь распознанному коду.
+    // Часть отказов вообще не доходит до нашей функции и своего кода не имеет: протухший JWT
+    // (verify_jwt отдаёт {"code":401,"message":"Invalid JWT"} — там нет поля `error`), не
+    // задеплоенная функция (404), упавший воркер (не-JSON тело), обрыв сети (supabase-js возвращает
+    // FunctionsFetchError, а НЕ бросает — до catch ниже дело не доходит). С проверкой «if (code)»
+    // все они молча проваливались в успешную ветку, и юзер видел «Отправили в Telegram», хотя в
+    // бот ничего не приходило.
+    if (error || !data || data.error) {
+      let code = data && data.error;
+      let detail = data && data.detail;
+      if (error && !code) { const b = await readFunctionErrorBody(error); if (b) { code = b.error; detail = b.detail; } }
+      msg.textContent = FUNCTION_ERROR_MESSAGES[code] || detail || code || (error && error.message) || 'Не удалось отправить сводку';
+      return;
+    }
+    msg.textContent = 'Отправили в Telegram';
+    setTimeout(() => { if (msg.textContent === 'Отправили в Telegram') msg.textContent = ''; }, 3000);
+  } catch (e) {
+    msg.textContent = 'Сеть недоступна, попробуй ещё раз';
+  } finally {
+    summaryNowBusy = false; btn.disabled = false;
+  }
+}
+
+// === ФОТО ГЛАВНОГО ЭКРАНА: ОБЛАЧНАЯ КОПИЯ (Фаза 22) ===
+// Само фото живёт в localStorage (инлайн-скрипт в <head> index.html читает его ДО первой отрисовки
+// — иначе на старте мелькнёт белый экран, а юзер просил ровно обратного). Здесь — только копия в
+// отдельной таблице user_media, чтобы фото переехало на второй телефон. В app_state его класть
+// нельзя: тот jsonb уходит на сервер при КАЖДОМ сохранении прогресса (см. pushAppState выше).
+const INTRO_PHOTO_LS_KEY = 'habbittracker_intro_photo'; // ДЕРЖАТЬ В СИНХРОНЕ с INTRO_PHOTO_KEY в habbittracker.js и со скриптом в <head>
+
+async function loadIntroPhoto() {
+  if (!me) return;
+  const r = await withTimeout(sb.from('user_media').select('intro_photo').eq('user_id', me).maybeSingle(), 6000);
+  if (r === TIMED_OUT) return; // сеть подвисла — остаёмся с локальной копией, следующий вход попробует снова
+  if (r.error) { console.error('loadIntroPhoto:', r.error.message); return; }
+  // ТРИ РАЗНЫХ СОСТОЯНИЯ, и схлопывать их в одно «пусто» нельзя:
+  //   строки нет вовсе (maybeSingle → null) — синка ещё НЕ БЫЛО, локальное фото надо залить наверх;
+  //   intro_photo = ''                      — юзер ОСОЗНАННО убрал фото (надгробие), надо стереть и локально;
+  //   intro_photo = data:...                — обычная картинка.
+  // Первый раз это было написано как `(r.data && r.data.intro_photo) || ''`, и «нет строки» с
+  // «убрал фото» слипались. Из-за этого удаление не держалось: телефон А стирал фото, планшет Б
+  // со своей устаревшей локальной копией видел «в облаке пусто → залью своё» и воскрешал его,
+  // после чего фото возвращалось и на телефон А. Цикл был устойчивым — удалить фото навсегда было
+  // нельзя вообще.
+  const remote = r.data ? (r.data.intro_photo == null ? null : r.data.intro_photo) : null;
+  let local = '';
+  try { local = localStorage.getItem(INTRO_PHOTO_LS_KEY) || ''; } catch (e) { return; }
+  if (remote === null) {
+    // Синхронизации ещё не было (или Фаза 22 применена только что) — заливаем то, что есть локально.
+    if (local) saveIntroPhotoToCloud(local);
+    return;
+  }
+  if (remote === local) return;
+  try {
+    if (remote === '') localStorage.removeItem(INTRO_PHOTO_LS_KEY); // надгробие — фото убрали на другом устройстве
+    else localStorage.setItem(INTRO_PHOTO_LS_KEY, remote);
+  } catch (e) { return; } // квота/приватный режим — молча остаёмся с тем, что было
+  // refreshIntroPhotoUI сама справляется и с пустым значением: applyIntroPhoto('') снимает
+  // CSS-переменную и класс, так что удаление доезжает до заставки без перезагрузки.
+  if (typeof window.refreshIntroPhotoUI === 'function') window.refreshIntroPhotoUI();
+}
+
+// Зовёт habbittracker.js сразу после того, как юзер выбрал/убрал фото (пустая строка = убрал).
+// Fire-and-forget: локально фото уже применено, сеть тут не критична.
+async function saveIntroPhotoToCloud(dataUrl) {
+  if (!me) return;
+  // Пустая строка, а НЕ null: null означает «строки/синка не было», и удаление на этом устройстве
+  // другое устройство приняло бы за «ему нечего показать, залью своё» (см. loadIntroPhoto выше).
+  const { error } = await sb.from('user_media').upsert({ user_id: me, intro_photo: dataUrl || '' });
+  if (error) console.error('saveIntroPhotoToCloud:', error.message);
+}
+window.saveIntroPhotoToCloud = saveIntroPhotoToCloud;
 
 // === ПОДПИСКА (Stars) ===
 // Цены здесь — ТОЛЬКО для отображения юзеру; реальная сумма списывается на бэке
@@ -412,6 +558,11 @@ document.addEventListener('visibilitychange', () => {
   // На мобильных фоновая вкладка часто теряет realtime-соединение (браузер приостанавливает JS/сеть) —
   // при возврате на всякий случай перепроверяем облако напрямую, а не полагаемся только на websocket.
   if (me) loadAppState();
+  // «Был здесь только что» — раньше писалось ТОЛЬКО в refresh(), то есть один раз за загрузку
+  // страницы. В Telegram Mini App приложение часто живёт свёрнутым сутками: человек им активно
+  // пользуется, а last_seen_at всё это время показывает момент запуска, и «пуньк пуньк» (Фаза 21)
+  // прилетел бы тому, кто никуда не пропадал. Внутри — троттл на 5 минут, лишних запросов нет.
+  if (me) syncTimezoneAndActivity();
 });
 
 async function loadSubscription() {
@@ -483,6 +634,13 @@ const FUNCTION_ERROR_MESSAGES = {
   invalid_init_data: 'Telegram не подтвердил подлинность данных входа (устаревшая или повреждённая ссылка)',
   create_user_failed: 'Не удалось создать аккаунт на сервере',
   link_failed: 'Не удалось выдать вход на сервере',
+  // Коды из send-summary-now/index.ts + claim_summary_ondemand (db/phase20_summary_time.sql):
+  too_often: 'Сводку можно запрашивать не чаще раза в минуту',
+  no_telegram: 'Сводка приходит в Telegram — открой приложение через бота',
+  no_timezone: 'Не удалось определить часовой пояс — закрой и открой приложение заново',
+  no_profile: 'Профиль ещё не создан на сервере',
+  telegram_send_failed: 'Telegram не принял сообщение — проверь, не заблокирован ли бот',
+  no_bot_token: 'Сервер не настроен (нет токена бота)',
   unexpected: 'Непредвиденная ошибка сервера',
 };
 async function readFunctionErrorBody(error) {
@@ -592,9 +750,20 @@ async function loadFamily() {
   window.familyMemberCount = acceptedIds.length;
   let statsById = {};
   if (acceptedIds.length) {
-    const r2 = await withTimeout(sb.from('stats').select('*').in('id', acceptedIds), 4000);
-    if (r2 !== TIMED_OUT) statsById = Object.fromEntries((r2.data || []).map(s => [s.id, s]));
+    // Раньше тут был прямой sb.from('stats').select('*').in('id', acceptedIds) — он держался на
+    // RLS-политике "stats friends read" (db/phase3_family.sql). Фаза 19 её снимает: пока клиент
+    // может сам прочитать чужую строку stats целиком, галочки в попапе «Редактировать доступ»
+    // остаются декоративными — данные всё равно уезжают на чужое устройство. Теперь читаем через
+    // SECURITY DEFINER-RPC get_family_stats(): она сама зануляет запрещённые поля и возвращает
+    // allowed — список разрешённых разделов, по нему же кнопка «Посмотреть» решает, что открывать.
+    // Фильтр по acceptedIds не нужен: функция и так отдаёт ровно тех, с кем are_friends() = true.
+    const r2 = await withTimeout(sb.rpc('get_family_stats'), 4000);
+    if (r2 !== TIMED_OUT && r2.error) console.error('get_family_stats:', r2.error.message);
+    if (r2 !== TIMED_OUT && !r2.error) statsById = Object.fromEntries((r2.data || []).map(s => [s.member_id, s]));
   }
+  // Читает вьюер «Посмотреть»: по member_id достаёт allowed и решает, показывать ли кнопку и
+  // какие вкладки в ней рисовать (данные он тянет отдельно через RPC get_family_state).
+  window.familyStatsById = statsById;
   // Юзер попросил разделить единый список на две секции экрана: «Семья» (принятые, с живой
   // статистикой) сразу под подпиской, «Приглашённые друзья» (ещё не в семье) — в самом низу.
   renderFamilyMembers(items.filter(it => it.isFamily), statsById);
@@ -626,6 +795,42 @@ async function removeFromFamily(id) {
   await sb.rpc('set_family_status', { row_id: id, new_status: 'pending' });
   loadFamily();
 }
+
+// === «ПОСМОТРЕТЬ» — ОТКРЫТЬ ЭКРАН ЧЛЕНА СЕМЬИ (Фаза 19, только чтение) ===
+// Юзер попросил: «в блоке семьи можно будет нажать "посмотреть" и открыть экран приложения члена
+// семьи полностью, просто без возможности редактирования». Данные отдаёт SECURITY DEFINER RPC
+// get_family_state: она сама проверяет are_friends(auth.uid(), member_id) и возвращает УЖЕ
+// отфильтрованный по расшаренным категориям слепок его app_state — клиент ничего не досоставляет
+// и лишнего не получает даже в сетевом ответе. Сам режим просмотра живёт в habbittracker.js
+// (window.enterFamilyViewMode): там глобальный dashState, на который завязаны все рендеры дашборда.
+async function openFamilyMemberState(memberId, fallbackName, btnEl) {
+  const msg = $('fam-view-msg');
+  if (msg) msg.textContent = '';
+  if (!memberId) return;
+  const prevLabel = btnEl ? btnEl.textContent : '';
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = '…'; }
+  // 6с, а не стандартные 4с остальных запросов: тут тянется весь jsonb состояния, он заметно
+  // толще строки stats/profiles.
+  const r = await withTimeout(sb.rpc('get_family_state', { member_id: memberId }), 6000);
+  if (btnEl) { btnEl.disabled = false; btnEl.textContent = prevLabel; }
+  if (r === TIMED_OUT) { if (msg) msg.textContent = 'Сеть подвисла — попробуй ещё раз'; return; }
+  const { data, error } = r;
+  if (error) { if (msg) msg.textContent = 'Не удалось открыть: ' + error.message; return; }
+  // null приходит, когда мы уже не семья (связь разорвали, пока модалка была открыта) — RPC в
+  // этом случае молча возвращает null, а не ошибку.
+  if (!data || !data.data) { if (msg) msg.textContent = 'Этот человек пока ничем не поделился'; return; }
+  const ok = typeof window.enterFamilyViewMode === 'function' && window.enterFamilyViewMode({
+    name: data.name || fallbackName,
+    allowed: data.allowed || [],
+    state: data.data,
+  });
+  // false = ни одной расшаренной категории (или habbittracker.js ещё не догрузился) — модалку не
+  // закрываем, объясняем прямо в ней, иначе юзер уткнулся бы в свой же экран без объяснений.
+  if (!ok) { if (msg) msg.textContent = 'Этот человек пока ничем не поделился'; return; }
+  // Не closeModal(): та молчит в mandatory-режиме (принудительный вход) — тут нужен безусловный
+  // выход из модалки на дашборд.
+  $('auth-modal').classList.remove('active');
+}
 function updateBonusStats() {
   const s = window.lastSubscription;
   const friendsEl = $('bonus-friends-count'); if (friendsEl) friendsEl.textContent = window.invitedFriendsCount || 0;
@@ -637,28 +842,179 @@ function updateBonusStats() {
 // у ДРУГИХ членов семьи (won и before this fix — статус пофиксил заодно, раз уже трогаю функцию).
 const escHtml = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// === РЕДАКТИРОВАТЬ ДОСТУП ДЛЯ СЕМЬИ (Фаза 19) ===
+// Юзер попросил: «сделай в блоке семьи, возможность нажать "редактировать доступ" и там сделай
+// попап, в котором можно выбрать что именно показывать семья, и еще сделай внутри кнопку "дать
+// полный доступ"». Настройка ОДНА НА ВСЮ СЕМЬЮ (одна строка в public.family_share на юзера), не
+// на каждого человека — так сформулировал юзер, и так попап остаётся списком из 7 строк, а не
+// матрицей 7×N. Как расширить до per-member без слома контракта — см. db/phase19_family_share_access.sql.
+// key здесь ДОЛЖЕН совпадать с ключами family_allowed_keys() в SQL (их же читает вьюер
+// «Посмотреть», см. FAMILY_VIEW_TABS в habbittracker.js), col — с именем boolean-колонки таблицы.
+const FAMILY_SHARE_CATS = [
+  { key: 'stats',           col: 'share_stats',             title: 'Базовая статистика',  hint: 'серия, % за неделю, настроение' },
+  { key: 'dayEvent',        col: 'share_day_event',         title: 'Событие дня',         hint: 'только сегодняшняя заметка — её видно в карточке семьи' },
+  { key: 'dayEventHistory', col: 'share_day_event_history', title: 'Архив событий дня',   hint: 'все прошлые заметки, а не только сегодняшняя' },
+  { key: 'habits',          col: 'share_habits',            title: 'Задачи',              hint: 'список задач и история выполнения' },
+  { key: 'metrics',         col: 'share_metrics',           title: 'Показатели Pro mode', hint: 'числовые показатели дня и цели по ним' },
+  { key: 'checkin',         col: 'share_checkin',           title: 'Чек-ап',              hint: 'сон, настроение, энергия, здоровье' },
+  { key: 'food',            col: 'share_food',              title: 'Питание',             hint: 'приёмы пищи и калории' },
+  { key: 'dayTasks',        col: 'share_day_tasks',         title: 'Задачи дня',          hint: 'главные задачи на конкретный день' },
+];
+// Ровно те же дефолты, что стоят в DDL таблицы — держать в синхроне: строки в family_share может
+// ещё не быть (юзер ни разу не открывал попап), и попап обязан показать то же, что в этом случае
+// вернёт сервер, иначе галочки «врали» бы до первого сохранения. Включены только те два раздела,
+// которые семья видела и ДО Фазы 19 — выкатка не меняет приватность задним числом.
+const FAMILY_SHARE_DEFAULTS = { full_access: false, share_stats: true, share_day_event: true, share_day_event_history: false, share_habits: false, share_metrics: false, share_checkin: false, share_food: false, share_day_tasks: false };
+let familyShare = null;
+
+const isFamilyAccessModalOpen = () => { const el = $('fam-access-modal'); return !!el && el.classList.contains('active'); };
+
+async function loadFamilyShare() {
+  if (!me) return;
+  const r = await withTimeout(sb.from('family_share').select('*').eq('user_id', me).maybeSingle(), 4000);
+  if (r === TIMED_OUT) { if (!familyShare) familyShare = { ...FAMILY_SHARE_DEFAULTS }; return; }
+  if (r.error) { console.error('loadFamilyShare:', r.error.message); if (!familyShare) familyShare = { ...FAMILY_SHARE_DEFAULTS }; return; }
+  // Спред поверх дефолтов, а не голая строка: если будущая фаза добавит колонку, а строка в базе
+  // старая — недостающее поле возьмётся из дефолтов, а не станет undefined.
+  familyShare = r.data ? { ...FAMILY_SHARE_DEFAULTS, ...r.data } : { ...FAMILY_SHARE_DEFAULTS };
+  if (isFamilyAccessModalOpen()) renderFamilyAccessRows(); // настройки могли поменять с другого устройства
+}
+
+async function saveFamilyShare() {
+  if (!me || !familyShare) return;
+  const msg = $('fam-access-msg');
+  msg.textContent = 'Сохраняем…';
+  // updated_at не шлём — его ставит триггер на сервере (см. миграцию), как и у app_state.
+  const payload = { user_id: me, full_access: !!familyShare.full_access };
+  FAMILY_SHARE_CATS.forEach(c => { payload[c.col] = !!familyShare[c.col]; });
+  const { error } = await sb.from('family_share').upsert(payload);
+  if (error) { msg.textContent = 'Ошибка: ' + error.message; return; }
+  msg.textContent = 'Сохранено';
+  setTimeout(() => { if (msg.textContent === 'Сохранено') msg.textContent = ''; }, 2000);
+  // loadFamily() тут звать НЕ нужно: эти настройки меняют то, что видят ДРУГИЕ, мой собственный
+  // список семьи от них не зависит.
+}
+
+function renderFamilyAccessRows() {
+  const box = $('fam-access-list');
+  if (!box || !familyShare) return;
+  // title/hint — статичные строки из FAMILY_SHARE_CATS выше, пользовательского ввода в них нет,
+  // escHtml им не нужен (в отличие от name/day_event в renderFamilyMembers).
+  box.innerHTML = FAMILY_SHARE_CATS.map(c => {
+    const on = !!familyShare.full_access || !!familyShare[c.col];
+    return `<button type="button" class="fam-access-row${on ? ' on' : ''}" data-col="${c.col}" aria-pressed="${on}">
+      <span class="fam-access-box" aria-hidden="true">${on ? '✓' : ''}</span>
+      <span class="fam-access-text"><span class="fam-access-title">${c.title}</span><span class="fam-access-hint">${c.hint}</span></span>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('.fam-access-row').forEach(b => b.addEventListener('click', () => toggleFamilyShare(b.dataset.col)));
+  // Всё уже открыто — кнопку «Дать полный доступ» гасим, чтобы не выглядела как «ещё что-то дадут».
+  const allOn = FAMILY_SHARE_CATS.every(c => familyShare.full_access || familyShare[c.col]);
+  const fullBtn = $('fam-access-full-btn');
+  fullBtn.disabled = allOn;
+  if (allOn) resetFullAccessConfirm();
+}
+
+// «Дать полный доступ» подтверждается вторым тапом: одно движение открывает семье питание, чек-ап
+// и всю историю задач, а отката в один клик нет — снимать пришлось бы галочку за галочкой.
+let fullAccessArmed = false;
+function resetFullAccessConfirm() {
+  fullAccessArmed = false;
+  const btn = $('fam-access-full-btn');
+  if (!btn) return;
+  btn.classList.remove('confirming');
+  btn.textContent = 'Дать полный доступ';
+}
+
+function toggleFamilyShare(col) {
+  if (!familyShare || !col) return;
+  resetFullAccessConfirm(); // тронул галочки — взведённое подтверждение больше не про то, что на экране
+  // full_access значит «показывай всё, включая разделы, которых ещё нет» (см. коммент к колонке в
+  // миграции). Как только юзер снимает ЛЮБУЮ галочку, это уже неправда — флаг сбрасываем, но
+  // сначала «материализуем» его в конкретные галочки, иначе один снятый пункт молча выключил бы
+  // весь доступ разом.
+  if (familyShare.full_access) {
+    FAMILY_SHARE_CATS.forEach(c => { familyShare[c.col] = true; });
+    familyShare.full_access = false;
+  }
+  familyShare[col] = !familyShare[col];
+  renderFamilyAccessRows();
+  saveFamilyShare();
+}
+
+function grantFullFamilyAccess() {
+  if (!familyShare) return;
+  const btn = $('fam-access-full-btn');
+  if (!fullAccessArmed) {
+    fullAccessArmed = true;
+    btn.classList.add('confirming');
+    btn.textContent = 'Точно? Нажми ещё раз';
+    // Само по себе взведённое состояние опасным не является, но висеть бесконечно ему незачем:
+    // вернулся к попапу через минуту — кнопка снова обычная, случайный тап ничего не откроет.
+    setTimeout(() => { if (fullAccessArmed) resetFullAccessConfirm(); }, 6000);
+    return;
+  }
+  resetFullAccessConfirm();
+  familyShare.full_access = true;
+  FAMILY_SHARE_CATS.forEach(c => { familyShare[c.col] = true; });
+  renderFamilyAccessRows();
+  saveFamilyShare();
+}
+
+function openFamilyAccessModal() {
+  if (!me) return;
+  if (!familyShare) familyShare = { ...FAMILY_SHARE_DEFAULTS }; // ещё не успели загрузить — рисуем дефолты
+  $('fam-access-msg').textContent = '';
+  resetFullAccessConfirm();
+  renderFamilyAccessRows();
+  $('fam-access-modal').classList.add('active');
+  loadFamilyShare(); // и сразу перечитываем — придут настоящие настройки, перерисует поверх
+}
+function closeFamilyAccessModal() { resetFullAccessConfirm(); $('fam-access-modal').classList.remove('active'); }
+
 // «Семья» — только принятые связи (см. #family-list в index.html, сразу под подпиской), всегда
 // со статистикой собеседника (are_friends уже разрешает читать stats обеим сторонам, см.
 // db/phase3_family.sql). Кнопка «Удалить из семьи» доступна любой стороне (set_family_status).
 function renderFamilyMembers(items, statsById) {
   const box = $('family-list');
   if (!box) return;
+  // Кнопка «Редактировать доступ» живёт в шапке секции (см. .fam-h-row в index.html) и относится
+  // ко всей семье сразу. Пока в семье никого нет — настраивать нечего, прячем.
+  const accessBtn = $('fam-access-btn');
+  if (accessBtn) accessBtn.style.display = items.length ? 'inline-flex' : 'none';
   if (!items.length) { box.innerHTML = '<div class="fam-empty">Пока никого. Пригласи по ID выше.</div>'; return; }
   box.innerHTML = items.map(it => {
     const s = statsById[it.counterpart];
     const name = escHtml((s && s.name) || it.fallbackName || '—');
-    const statsHtml = s
-      ? `<div class="fam-stats"><span>серия ${s.streak ?? 0}</span><span>${s.week_pct ?? 0}% за неделю</span>${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
+    // streak/week_pct/mood приходят null, если собеседник ВЫКЛЮЧИЛ «Базовую статистику» в своём
+    // попапе доступа — get_family_stats зануляет их на сервере (Фаза 19). Прежние `?? 0` в этом
+    // случае нарисовали бы «серия 0 / 0% за неделю», то есть соврали бы: не «ноль», а «человек не
+    // показывает». Поэтому каждое поле рисуем отдельно, а пустую строку статистики — не рисуем вовсе.
+    const hasStats = s && (s.streak != null || s.week_pct != null || s.mood != null);
+    const statsHtml = hasStats
+      ? `<div class="fam-stats">${s.streak != null ? `<span>серия ${s.streak}</span>` : ''}${s.week_pct != null ? `<span>${s.week_pct}% за неделю</span>` : ''}${s.mood != null ? `<span>настроение ${s.mood}/10</span>` : ''}</div>`
       : '';
     // Событие дня — только СЕГОДНЯШНЕЕ (getSummary() в habbittracker.js кладёт в day_event только
     // dashState.dayEvents[todayKey()]), пусто — строку не показываем вообще.
     const dayEventHtml = (s && s.day_event) ? `<div class="fam-day-event">${escHtml(s.day_event)}</div>` : '';
+    // Две кнопки: «Посмотреть» (открыть его экран целиком на чтение) и «Удалить из семьи».
+    // Обёртка .fam-friend-actions ставит их колонкой — рядом в строку на узком экране Telegram они
+    // не влезают. Различаем в обработчике по data-action, а не по классу.
+    // data-uid — это id ПОЛЬЗОВАТЕЛЯ (it.counterpart), а не строки invites (it.id): RPC
+    // get_family_state принимает именно uid собеседника. name уже прогнан через escHtml (он
+    // экранирует и кавычки), поэтому безопасен и внутри атрибута.
     return `<div class="fam-friend">
       <div class="fam-friend-info"><div class="fam-name">${name}</div>${statsHtml}${dayEventHtml}</div>
-      <button class="fam-fam-btn fam-fam-remove" data-id="${it.id}" data-action="remove" type="button">Удалить из семьи</button>
+      <div class="fam-friend-actions">
+        <button class="fam-fam-btn fam-fam-view" data-uid="${it.counterpart}" data-name="${name}" data-action="view" type="button">Посмотреть</button>
+        <button class="fam-fam-btn fam-fam-remove" data-id="${it.id}" data-action="remove" type="button">Удалить из семьи</button>
+      </div>
     </div>`;
   }).join('');
-  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => removeFromFamily(b.dataset.id)));
+  box.querySelectorAll('.fam-fam-btn').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.action === 'view') openFamilyMemberState(b.dataset.uid, b.dataset.name, b);
+    else removeFromFamily(b.dataset.id);
+  }));
 }
 
 // «Приглашённые друзья» — самый низ профиля (юзер попросил): связи, ещё не принятые в семью.
@@ -739,9 +1095,28 @@ function wire() {
   });
   $('prof-name-save').addEventListener('click', saveName);
   $('prof-name-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveName(); });
+  // Итоги дня (Фаза 20): сохраняем по 'change', а не по кнопке — на телефоне у <input type="time">
+  // событие приходит один раз, когда юзер закрывает нативный пикер, отдельная кнопка «Сохранить»
+  // была бы лишним шагом.
+  $('summary-enabled-toggle').addEventListener('change', saveSummarySettings);
+  $('summary-time-input').addEventListener('change', saveSummarySettings);
+  $('summary-now-btn').addEventListener('click', requestSummaryNow);
   $('fam-invite-btn').addEventListener('click', sendInvite);
   $('fam-invite-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendInvite(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  // Попап «Редактировать доступ» (Фаза 19). Отдельной кнопки «Сохранить» нет — каждая галочка
+  // сохраняется сразу (см. toggleFamilyShare), поэтому «Готово» просто закрывает попап.
+  $('fam-access-btn').addEventListener('click', openFamilyAccessModal);
+  $('fam-access-close').addEventListener('click', closeFamilyAccessModal);
+  $('fam-access-done-btn').addEventListener('click', closeFamilyAccessModal);
+  $('fam-access-full-btn').addEventListener('click', grantFullFamilyAccess);
+  $('fam-access-modal').addEventListener('click', (e) => { if (e.target === $('fam-access-modal')) closeFamilyAccessModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    // Попап доступа лежит ПОВЕРХ профиля (z-index 2950 против 2900) — Escape должен закрывать
+    // сначала его, иначе профиль закрывался бы «сквозь» открытый попап и тот повис бы над пустым экраном.
+    if (isFamilyAccessModalOpen()) { closeFamilyAccessModal(); return; }
+    closeModal();
+  });
   sb.auth.onAuthStateChange(() => refresh());
 }
 

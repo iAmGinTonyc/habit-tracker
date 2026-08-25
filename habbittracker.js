@@ -100,6 +100,27 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
     if (introText) introText.textContent = phrases[Math.floor(Math.random() * phrases.length)];
 
+    // === ЭКРАНИРОВАНИЕ ПОЛЬЗОВАТЕЛЬСКОГО ТЕКСТА ДЛЯ innerHTML ===
+    // ОБЯЗАТЕЛЬНО прогонять через esc() ЛЮБОЕ значение из dashState, которое юзер вводил сам
+    // (названия задач и показателей, «я сделаю после», событие дня, задачи дня, еда) — везде, где
+    // оно попадает в innerHTML или в атрибут.
+    //
+    // ПОЧЕМУ ЭТО СТАЛО КРИТИЧНЫМ ИМЕННО СЕЙЧАС. До Фазы 19 в dashState лежали ТОЛЬКО собственные
+    // данные юзера: разметка в названии задачи была бы self-XSS, то есть безвредной глупостью.
+    // Режим «Посмотреть» (enterFamilyViewMode) кладёт в dashState состояние ДРУГОГО человека —
+    // и тот же самый нескранированный `${h.text}` превращается в настоящую хранимую XSS: член
+    // семьи называет задачу `<img src=x onerror=...>`, я жму «Посмотреть», и его код выполняется
+    // в МОЁМ origin, где в localStorage лежит ключ сессии Supabase ('habit_auth'). Ни
+    // familyViewEventGuard, ни серверные RPC тут не помогают: разметка выполняется в момент
+    // разбора innerHTML, до всяких кликов, а get_family_state отдаёт jsonb как есть.
+    // Тот же приём уже применён в auth.js (escHtml) ровно по этой причине — просто до сих пор не
+    // был доведён до рендеров дашборда.
+    //
+    // Экранируем и кавычки тоже: одной функции хватает и для текста, и для значения атрибута
+    // (раньше был escAttr, который менял ТОЛЬКО двойную кавычку — внутри атрибута он спасал, а в
+    // текстовом узле пропускал < и > насквозь).
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
     // === ПЕРЕМЕННЫЕ СОСТОЯНИЯ ===
     let timerInterval;
     let reminderInterval;
@@ -139,7 +160,22 @@ document.addEventListener('DOMContentLoaded', () => {
         seenHints: {}       // показанные контекстные подсказки по вкладкам
     };
 
+    // === РЕЖИМ «ПРОСМОТР ЭКРАНА ЧЛЕНА СЕМЬИ» (Фаза 19) ===
+    // null — обычная работа со своими данными; объект — сейчас на экране ЧУЖОЕ состояние.
+    // Полное описание механики и гарантий безопасности — у enterFamilyViewMode ниже.
+    let familyView = null;
+    // Облачное состояние, прилетевшее по реалтайму, пока мы смотрели чужой экран — применяем
+    // при выходе (applyCloudState перезагружает страницу, посреди просмотра это выглядело бы
+    // как вылет без причины).
+    let pendingCloudState = null;
+
     function saveProgress() {
+        // Пока смотрим экран члена семьи — не пишем НИЧЕГО. dashState сейчас держит ЧУЖОЕ
+        // состояние, любая запись отсюда затёрла бы мой localStorage и улетела бы в мою строку
+        // app_state (Фаза 11). Это единственная точка записи в приложении — все её вызовы
+        // гасятся этим одним return, отдельные проверки в обработчиках не нужны (сами обработчики
+        // и так не доходят до вызова — см. familyViewEventGuard).
+        if (familyView) return;
         try {
             localStorage.setItem('habbittracker_progress', JSON.stringify(dashState));
         } catch (e) {
@@ -155,6 +191,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // так гарантированно проходят все те же миграции/дефолты, что и при обычном старте (см. init()),
     // без дублирования этой логики здесь.
     window.applyCloudState = function (remoteState, remoteUpdatedAt) {
+        // Идёт просмотр члена семьи (Фаза 19) — применять облако сейчас нельзя: функция
+        // заканчивается location.reload(), и юзер молча вылетел бы с чужого экрана. Реалтайм в
+        // auth.js при этом НЕ отписываем (отписка/переподписка рискует пропустить событие и
+        // разъехаться с другим устройством) — просто запоминаем последнее и применяем в
+        // exitFamilyViewMode. Свои данные при этом не теряются: в режиме просмотра мы вообще
+        // ничего не сохраняли (saveProgress — no-op).
+        if (familyView) { pendingCloudState = { remoteState, remoteUpdatedAt }; return; }
         try {
             const current = localStorage.getItem('habbittracker_progress');
             if (current) localStorage.setItem('habbittracker_progress_backup', current);
@@ -842,9 +885,9 @@ document.addEventListener('DOMContentLoaded', () => {
             row.className = `dash-habit-row ${habit.completed ? 'completed' : ''}`;
             row.dataset.uid = habit.uid;
             let subtextHtml = '';
-            if (habit.triggerText) subtextHtml += `<span>после того как ${habit.triggerText}</span>`;
-            if (habit.reminderTime) subtextHtml += `<span>напомнить в ${habit.reminderTime}</span>`;
-            row.innerHTML = `<div class="habit-main-line"><span class="habit-check"></span><span class="dash-habit-text">${habit.text}</span>${habit.type === 'oneTime' ? '' : streakChip(currentStreak(habit.uid))}<span class="habit-settings-icon">${DOTS}</span></div>${subtextHtml ? `<div class="habit-subtext">${subtextHtml}</div>` : ''}`;
+            if (habit.triggerText) subtextHtml += `<span>после того как ${esc(habit.triggerText)}</span>`;
+            if (habit.reminderTime) subtextHtml += `<span>напомнить в ${esc(habit.reminderTime)}</span>`;
+            row.innerHTML = `<div class="habit-main-line"><span class="habit-check"></span><span class="dash-habit-text">${esc(habit.text)}</span>${habit.type === 'oneTime' ? '' : streakChip(currentStreak(habit.uid))}<span class="habit-settings-icon">${DOTS}</span></div>${subtextHtml ? `<div class="habit-subtext">${subtextHtml}</div>` : ''}`;
             row.querySelector('.habit-check').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.dash-habit-text').addEventListener('click', () => toggleHabit(index, row));
             row.querySelector('.habit-settings-icon').addEventListener('click', (e) => { e.stopPropagation(); openHabitSettings(index); });
@@ -1164,15 +1207,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const doneToday = isDone(h.uid, tKey);
                 // Подпись под названием — время напоминания и триггер «я сделаю после…», если заданы.
                 let subtextHtml = '';
-                if (h.reminderTime) subtextHtml += `<span>${h.reminderTime}</span>`;
-                if (h.triggerText) subtextHtml += `<span>я сделаю после: ${h.triggerText}</span>`;
+                if (h.reminderTime) subtextHtml += `<span>${esc(h.reminderTime)}</span>`;
+                if (h.triggerText) subtextHtml += `<span>я сделаю после: ${esc(h.triggerText)}</span>`;
                 const rowEl = document.createElement('div');
                 rowEl.className = 'hm-row';
                 rowEl.dataset.uid = h.uid;
                 rowEl.innerHTML = `
                     <div class="hm-row-head">
                         <div class="hm-row-headline">
-                            <span class="hm-label${doneToday ? ' done' : ''}" title="${h.text}">${h.text}</span>
+                            <span class="hm-label${doneToday ? ' done' : ''}" title="${esc(h.text)}">${esc(h.text)}</span>
                             <span class="hm-meta">${streak > 0 ? `<span class="hm-streak">${FLAME}${streak}</span>` : ''}<span class="hm-count">${monthDone}/${days}</span><span class="hm-settings" data-idx="${hIdx}">${DOTS}</span></span>
                         </div>
                         ${subtextHtml ? `<div class="hm-subtext">${subtextHtml}</div>` : ''}
@@ -1252,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const idx = allHabits.indexOf(h);
                 const done = isDone(h.uid, dateKey);
                 return `<div class="task-day-row${done ? ' done' : ''}" data-uid="${h.uid}">
-                    <span class="task-day-text">${h.text}</span>
+                    <span class="task-day-text">${esc(h.text)}</span>
                     ${h.type === 'oneTime' ? '' : streakChip(currentStreak(h.uid))}
                     <span class="task-day-settings" data-idx="${idx}">${DOTS}</span>
                 </div>`;
@@ -1365,7 +1408,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const over = isLimit && sums[mt.id] > monthlyTarget;
             const pct = monthlyTarget > 0 ? Math.min(100, Math.round(sums[mt.id] / monthlyTarget * 100)) : (sums[mt.id] > 0 ? 100 : 0);
             return `<div class="pm-row">
-                <div class="pm-top"><span class="pm-name">${mt.name}${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
+                <div class="pm-top"><span class="pm-name">${esc(mt.name)}${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
                 <span class="pm-val ${over ? 'over' : ''}"><b>${fmtNum(sums[mt.id])}</b> / ${fmtNum(monthlyTarget)} ${mt.unit || ''}</span></div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div></div>`;
         }).join('');
@@ -1432,6 +1475,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const label = document.getElementById(`${idPrefix}-label`);
             if (label) label.textContent = `${MONTH_NAMES[m]} ${y}`;
             wireChartNav(idPrefix);
+            // Юзер попросил: «чтобы в аналитике дня при открытии отображался самый правый день…
+            // ну и листать дальше влево можно было при желании» — оба графика открывались на 1-м
+            // числе месяца (scrollLeft = 0), хотя интересен всегда свежий день. Здесь только
+            // ВЗВОДИМ флаг «этот месяц надо один раз автопрокрутить»; сам скролл делает
+            // autoScrollChartToFreshDay() внутри draw*(), потому что до layoutMonthChart ширина
+            // канваса ещё не известна, а при невидимой вкладке layout вообще вернёт null и уйдёт
+            // в retry по setTimeout — прокручивать в этот момент нечего.
+            // Флаг ставится ТОЛЬКО отсюда: renderCheckupCharts вызывается на заходе во вкладку и
+            // на любой смене месяца (switchView / shiftCheckupChartMonth / onPick календаря), а
+            // перерисовки в обход неё не должны отматывать вью назад, пока юзер сам листает историю.
+            const scrollWrap = document.getElementById(`${idPrefix}-scroll`);
+            if (scrollWrap) scrollWrap.dataset.autoScrollTo = `${y}-${m}`;
         });
         drawMonthMoodSleep(y, m, days);
         drawSleepHoursChart(y, m, days);
@@ -1456,6 +1511,39 @@ document.addEventListener('DOMContentLoaded', () => {
         return { ctx, w, h, pad, dayW };
     }
 
+    // Одноразовая автопрокрутка графика к «самому свежему» дню — юзер: «чтобы в аналитике дня при
+    // открытии отображался самый правый день. это в блоке сна и настроения. ну и листать дальше
+    // влево можно было при желании». Что считаем свежим днём:
+    //   • текущий месяц  → СЕГОДНЯ. Не последнее число месяца: иначе в начале месяца справа висел
+    //                      бы хвост ещё не наступивших дней, а реальные данные уезжали бы влево —
+    //                      ровно та проблема, от которой юзер и просил уйти.
+    //   • прошлый месяц  → последнее число (для него «самый свежий день» = конец месяца).
+    //   • будущий месяц  → 1-е число: ближайшие к «сейчас» дни там в НАЧАЛЕ. Отдельной ветки со
+    //                      scrollLeft = 0 не нужно — для 1-го числа формула ниже даёт отрицательное
+    //                      значение, и clamp сам сводит его к нулю.
+    // Вызывается из draw*() ПОСЛЕ layoutMonthChart: к этому моменту canvas.style.width уже
+    // выставлен, а чтение scrollWidth принудительно пересчитывает раскладку, так что новая ширина
+    // уже видна. Работает и на retry-пути (вкладка была не видна, clientWidth === 0): флаг живёт на
+    // элементе, поэтому переживает любое количество отложенных повторов.
+    function autoScrollChartToFreshDay(scrollWrap, y, m, days, layout) {
+        // Флаг взводит только renderCheckupCharts. Сверка с текущим месяцем заодно гасит «протухший»
+        // retry: если юзер успел пролистнуть месяц, пока сработал setTimeout старой отрисовки,
+        // ключи не совпадут и вью не дёрнется.
+        if (!scrollWrap || scrollWrap.dataset.autoScrollTo !== `${y}-${m}`) return;
+        delete scrollWrap.dataset.autoScrollTo; // один раз на заход/смену месяца — дальше юзер листает сам
+        const now = new Date();
+        const isCurrent = y === now.getFullYear() && m === now.getMonth();
+        const isFuture = y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth());
+        const targetDay = isCurrent ? Math.min(now.getDate(), days) : (isFuture ? 1 : days);
+        // Правый край колонки целевого дня + правый паддинг канваса должны совпасть с правым краем
+        // видимой области: тогда нужный день стоит крайним справа, а вся история уходит влево.
+        // Геометрия ровно та же, что у xAt() в графиках: колонка дня d занимает
+        // [pad.l + (d-1)*dayW, pad.l + d*dayW].
+        const targetRight = layout.pad.l + targetDay * layout.dayW + layout.pad.r;
+        const maxScroll = Math.max(0, scrollWrap.scrollWidth - scrollWrap.clientWidth);
+        scrollWrap.scrollLeft = Math.max(0, Math.min(maxScroll, targetRight - scrollWrap.clientWidth));
+    }
+
     // Подписи под графиком: день недели + число месяца на каждый день — юзер попросил явно
     // подписывать ось X, а не полагаться на одну лишь сетку значений.
     function drawDayLabelsXAxis(ctx, y, m, days, xAt, chartBottomY) {
@@ -1475,6 +1563,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const layout = layoutMonthChart(canvas, scrollWrap, days, 20);
         if (!layout) { setTimeout(() => drawMonthMoodSleep(y, m, days), 60); return; }
         const { ctx, w, h, pad, dayW } = layout;
+        autoScrollChartToFreshDay(scrollWrap, y, m, days, layout); // открываемся на свежем дне (см. хелпер выше)
         const ih = h - pad.t - pad.b;
 
         // сетка 0 / 5 / 10
@@ -1517,6 +1606,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const layout = layoutMonthChart(canvas, scrollWrap, days, 20);
         if (!layout) { setTimeout(() => drawSleepHoursChart(y, m, days), 60); return; }
         const { ctx, w, h, pad, dayW } = layout;
+        autoScrollChartToFreshDay(scrollWrap, y, m, days, layout); // открываемся на свежем дне (см. хелпер выше)
         const ih = h - pad.t - pad.b;
 
         // сетка по часам суток
@@ -1682,6 +1772,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // оплаты: клик по Pro-кнопке блокируется (см. обработчик .view-btn), а уже включённый режим —
     // нет. Дёргается из auth.js при каждом обновлении статуса подписки.
     window.exitPsychoModeIfUnsubscribed = function () {
+        // В режиме просмотра члена семьи (Фаза 19) psychoMode отражает ЕГО режим, а не мой, и моя
+        // подписка тут ни при чём — иначе loadSubscription() из auth.js на каждом visibilitychange
+        // перекидывал бы меня с его Pro-вкладки обратно на обычную.
+        if (familyView) return;
         if (!window.hasActiveSubscription && dashState.psychoMode) setPsychoMode(false);
     };
 
@@ -1698,6 +1792,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Стилизованное подтверждение (вместо нативного confirm). Модалка #confirm-modal живёт внутри
     // #dashboard-screen → в psycho mode инвертируется вместе с темой. Esc — отмена.
+    // ВНИМАНИЕ: message кладётся в textContent, и это НЕ случайность — сюда приходят строки вида
+    // «Удалить «${h.text}»?», то есть пользовательский текст без esc(). Переведёшь на innerHTML —
+    // получишь ту самую XSS, от которой закрывались рендеры дашборда (см. esc() в начале файла).
     function confirmDialog(message, onOk) {
         const modal = document.getElementById('confirm-modal');
         if (!modal) { if (window.confirm(message)) onOk(); return; } // фолбэк
@@ -1747,7 +1844,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pct = target > 0 ? Math.min(100, Math.round(val / target * 100)) : (val > 0 ? 100 : 0);
             row.innerHTML = `
                 <div class="metric-top">
-                    <span class="metric-name-wrap"><span class="metric-name" title="нажми, чтобы переименовать">${m.name}</span>${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
+                    <span class="metric-name-wrap"><span class="metric-name" title="нажми, чтобы переименовать">${esc(m.name)}</span>${isLimit ? '<span class="metric-tag">лимит</span>' : ''}</span>
                     <span class="metric-val ${over ? 'over' : ''}"><b>${fmtNum(val)}</b> / ${fmtNum(target)} ${m.unit || ''}</span>
                 </div>
                 <div class="metric-bar ${over ? 'over' : ''}"><i style="width:${pct}%"></i></div>
@@ -1772,7 +1869,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // (Esc пересобирает список → blur всё равно долетает до уже отсоединённого инпута).
             row.querySelector('.metric-name').addEventListener('click', () => {
                 const nameSpan = row.querySelector('.metric-name');
-                nameSpan.outerHTML = `<input type="text" class="metric-name-edit" value="${escAttr(m.name)}" maxlength="32">`;
+                nameSpan.outerHTML = `<input type="text" class="metric-name-edit" value="${esc(m.name)}" maxlength="32">`;
                 const inp = row.querySelector('.metric-name-edit');
                 inp.focus(); inp.select();
                 let settled = false;
@@ -1789,7 +1886,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 actions.innerHTML = `
                     <span class="goal-edit-label">${isLimit ? 'лимит на день' : 'цель на день'}</span>
                     <input type="text" class="goal-edit-input" inputmode="decimal" enterkeyhint="done" value="${target}" min="0"${m.step ? ` step="${m.step}"` : ''}>
-                    ${m.unit ? `<span class="goal-edit-unit">${m.unit}</span>` : ''}
+                    ${m.unit ? `<span class="goal-edit-unit">${esc(m.unit)}</span>` : ''}
                     <button class="goal-edit-save" type="button">ОК</button>
                     <button class="goal-edit-cancel" type="button" aria-label="Отмена">✕</button>`;
                 const gi = actions.querySelector('.goal-edit-input'); gi.focus(); gi.select();
@@ -2219,7 +2316,6 @@ document.addEventListener('DOMContentLoaded', () => {
         saveProgress();
         renderFood();
     }
-    const escAttr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
 
     // даты текущей недели (Пн–Вс), содержащей сегодня
     function weekDates() {
@@ -2247,7 +2343,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const tKey = todayKey();
         const isHistory = !!currentFoodHistoryDate;
         const viewDate = currentFoodHistoryDate || tKey;
-        const isPro = !!window.hasActiveSubscription;
+        // || familyView — в режиме просмотра члена семьи (Фаза 19) календарь истории питания
+        // работает как обычный просмотр прошлого дня: подписка гейтит МОЙ доступ к своей истории,
+        // а не право посмотреть уже расшаренные мне данные.
+        const isPro = !!window.hasActiveSubscription || !!familyView;
         // Pro mode: вместо времени приёма пищи (нормальный режим) — счётчик калорий с автокомплитом
         // по FOOD_DB (см. HANDOFF.md — юзер попросил заменить механику именно в Pro mode).
         if (dashState.psychoMode) { renderFoodCalories(root, viewDate, isHistory, isPro); return; }
@@ -2263,7 +2362,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const rec = dayRec[mealId] || {};
             return `<div class="food-cell" data-meal="${mealId}">
                 <div class="time-scroll-container food-time" data-meal="${mealId}"></div>
-                <input type="text" class="food-text" enterkeyhint="done" data-field="text" maxlength="60" placeholder="что кушал" value="${escAttr(rec.text)}">
+                <input type="text" class="food-text" enterkeyhint="done" data-field="text" maxlength="60" placeholder="что кушал" value="${esc(rec.text)}">
             </div>`;
         }).join('');
         // История — тот же кастомный ч/б календарь, что и у чек-апа (openCalendar), но доступ
@@ -2382,7 +2481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recs = dashState.calorieLog[viewDate] || [];
             if (!recs.length) { list.innerHTML = '<div class="dash-habit-limit">Пока пусто — добавь, что съел</div>'; return; }
             list.innerHTML = recs.map(e => `<div class="cal-item">
-                <span class="cal-item-name">${escAttr(e.name)}</span>
+                <span class="cal-item-name">${esc(e.name)}</span>
                 <span class="cal-item-kcal">${Math.round(e.kcal)} ккал</span>
                 <button type="button" class="cal-item-del" data-id="${e.id}" aria-label="Удалить">✕</button>
             </div>`).join('');
@@ -2421,7 +2520,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const matches = searchFoodDb(searchInput.value);
             suggestBox.innerHTML = matches.map(m => {
                 const macroAttrs = m.protein != null ? ` data-protein="${m.protein}" data-fat="${m.fat}" data-carbs="${m.carbs}"` : '';
-                return `<button type="button" class="cal-suggestion" data-name="${escAttr(foodLabel(m))}" data-kcal="${m.kcal}"${macroAttrs}>${foodLabel(m)}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`;
+                return `<button type="button" class="cal-suggestion" data-name="${esc(foodLabel(m))}" data-kcal="${m.kcal}"${macroAttrs}>${esc(foodLabel(m))}<span class="cal-suggestion-kcal">${m.kcal} ккал</span></button>`;
             }).join('');
             suggestBox.style.display = matches.length ? 'block' : 'none';
         });
@@ -2609,7 +2708,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 cells += `<button class="cal-cell${done ? ' done' : ''}${key === todayKey() ? ' today' : ''}" data-key="${key}"${key > todayKey() ? ' disabled' : ''}>${d}</button>`;
             }
             overlay.innerHTML = `<div class="cal-card">
-                <div class="cal-habit-title">${habit.text}</div>
+                <div class="cal-habit-title">${esc(habit.text)}</div>
                 <div class="cal-head">
                     <button class="cal-nav" data-nav="-1" type="button" aria-label="Предыдущий месяц">‹</button>
                     <span class="cal-title">${MONTH_NAMES[vm]} ${vy}</span>
@@ -2849,6 +2948,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function maybeShowViewHint(view) {
         const banner = document.getElementById('onb-hint');
         if (!banner) return;
+        // В режиме просмотра члена семьи (Фаза 19) подсказки онбординга не при чём — они про МОЙ
+        // первый заход. Плюс защита от падения: строкой ниже читается dashState.seenHints[view],
+        // а у чужого (отфильтрованного get_family_state) состояния этого поля может не быть.
+        if (familyView) { banner.style.display = 'none'; return; }
         if (VIEW_HINTS[view] && !dashState.seenHints[view]) {
             banner.querySelector('.onb-hint-text').textContent = VIEW_HINTS[view];
             banner.style.display = 'flex';
@@ -3156,6 +3259,10 @@ document.addEventListener('DOMContentLoaded', () => {
         reminderInterval = setInterval(checkReminders, 30000);
     }
     function checkReminders() {
+        // В режиме просмотра члена семьи (Фаза 19) dashState — чужой: без этой проверки интервал
+        // startReminderChecker раз в 30с показывал бы тосты «Время действовать» по ЕГО
+        // напоминаниям и пищал бы мне. Интервал не гасим — просто пропускаем тик.
+        if (familyView) return;
         if (!dashState.habits) return;
         const now = new Date();
         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -3175,7 +3282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showReminderToast(habit) {
         document.querySelectorAll('.reminder-toast').forEach(t => t.remove());
         const toast = document.createElement('div'); toast.className = 'reminder-toast';
-        toast.innerHTML = `<span class="toast-icon">🔔</span><div><strong>Время действовать</strong><p>${habit.text}</p>${habit.triggerText ? `<small>Привязка: ${habit.triggerText}</small>` : ''}</div><button class="toast-close">✕</button>`;
+        toast.innerHTML = `<span class="toast-icon">🔔</span><div><strong>Время действовать</strong><p>${esc(habit.text)}</p>${habit.triggerText ? `<small>Привязка: ${esc(habit.triggerText)}</small>` : ''}</div><button class="toast-close">✕</button>`;
         document.body.appendChild(toast);
         requestAnimationFrame(() => toast.classList.add('show'));
         const closeBtn = toast.querySelector('.toast-close');
@@ -3615,6 +3722,268 @@ document.addEventListener('DOMContentLoaded', () => {
     window.updateProgressUI = updateProgressUI;
     window.getLevelStats = getLevelStats;
 
+    // =========================================
+    //   ПРОСМОТР ЭКРАНА ЧЛЕНА СЕМЬИ (Фаза 19) — ТОЛЬКО ЧТЕНИЕ
+    // =========================================
+    // Юзер попросил: «в блоке семьи можно будет нажать "посмотреть" и открыть экран приложения
+    // члена семьи полностью, просто без возможности редактирования».
+    //
+    // МЕХАНИКА. Подменяем ЗАМЫКАНИЕВУЮ переменную dashState чужим состоянием (его отдаёт
+    // SECURITY DEFINER RPC get_family_state — см. db/phase19_family_share_access.sql и auth.js
+    // openFamilyMemberState). Все рендеры (renderMonthView / renderTaskDayView / renderPsychoDay /
+    // renderPsychoMonth / initCheckins / renderCheckupCharts / renderFood / renderPet) читают
+    // dashState через это же замыкание, поэтому одной подмены хватает, чтобы ВЕСЬ дашборд показал
+    // чужие данные. Второй набор рендеров или iframe тут были бы дороже и разъезжались бы с
+    // основным кодом при каждой правке (плюс iframe отдельно тянет весь Supabase-клиент и вторую
+    // сессию).
+    //
+    // ЧТО ГАРАНТИРУЕТ, ЧТО ЧУЖИЕ ДАННЫЕ НЕ УЕДУТ В МОЙ АККАУНТ (главный риск фичи):
+    //  1. saveProgress() — жёсткий no-op, пока familyView != null. Это ЕДИНСТВЕННАЯ точка записи
+    //     в приложении: и localStorage, и облако (window.syncStats/window.syncAppState из auth.js)
+    //     дёргаются только из неё. Значит ни один из её вызовов ничего не запишет.
+    //  2. Своё состояние НЕ копируем: familyView.ownState держит ТОТ ЖЕ объект, что лежал в
+    //     dashState до входа. Чужие рендеры мутируют только новый объект, мой остаётся байт-в-байт
+    //     тем же — на выходе просто возвращаем ссылку назад, ничего не пересобирая.
+    //  3. window.dashState продолжает указывать на МОЁ состояние — его читает auth.js loadAppState
+    //     (`syncAppState(window.dashState)`, когда в облаке пусто).
+    //  4. Реалтайм (auth.js subscribeAppStateRealtime) не отписываем — вместо этого откладываем
+    //     applyCloudState до выхода (pendingCloudState выше). Отписка/переподписка рискует
+    //     пропустить событие и молча разъехаться с другим устройством.
+    //  5. auth.js syncMyStats() сам выходит при window.familyViewMode: он читает ЖИВОЙ
+    //     window.getSummary() (то есть текущий dashState), и уже заведённый ДО входа дебаунс-
+    //     таймер (1.5с), сработав внутри режима, записал бы в МОЮ строку stats чужую серию,
+    //     процент недели и настроение — их видит вся моя семья.
+    //     pushAppState специально НЕ гасим: он пушит объект, ЗАХВАЧЕННЫЙ в момент планирования,
+    //     то есть всегда моё состояние (нового пуша в режиме просмотра не заводится — см. п.1),
+    //     а глушение потеряло бы честное сохранение, сделанное за секунду до нажатия «Посмотреть».
+    //
+    // ПОБОЧКИ, КОТОРЫЕ ГАСЯТСЯ ОТДЕЛЬНО (каждая — свой ранний return, см. по коду выше):
+    //   checkReminders() — тосты/звук по чужим напоминаниям раз в 30с;
+    //   maybeShowViewHint() — подсказки онбординга + падение на отсутствующем seenHints;
+    //   window.exitPsychoModeIfUnsubscribed() — сброс чужого Pro mode по моей подписке;
+    //   пейволл в обработчике .view-btn — предложение мне купить подписку за чужие данные.
+    //   XP/уровни (awardXP) отдельно гасить не нужно: FEATURES.xpLevels уже прячет .dash-level/
+    //   .dash-footer, а сама мутация уходит в выбрасываемый при выходе объект.
+
+    // Кнопки таб-бара, которые вообще могут быть показаны в режиме просмотра, и категория, которой
+    // член семьи должен был поделиться. Ключи категорий — те же, что у family_allowed_keys() в SQL
+    // и FAMILY_SHARE_CATS в auth.js: один словарь на три места. Категория не расшарена → кнопки
+    // нет совсем (юзер просил прятать раздел, а не показывать пустой экран). Порядок = приоритет:
+    // первая доступная вкладка и открывается при входе.
+    // «Питомец» привязан к habits: его состояние считается из привычек и истории их выполнения.
+    // «День», «Вечер» и «Игры» в режиме просмотра не показываем никогда: первые две скрыты
+    // фиче-флагами и в обычной работе, игры — личная механика без чужих данных.
+    const FAMILY_VIEW_TABS = [
+        { sel: '#btn-tasks',     view: 'month',   cat: 'habits',  pro: false },
+        { sel: '#btn-tasks-pro', view: 'month',   cat: 'metrics', pro: true  },
+        { sel: '#btn-morning',   view: 'morning', cat: 'checkin', pro: false },
+        { sel: '#btn-food',      view: 'food',    cat: 'food',    pro: false },
+        { sel: '#btn-food-pro',  view: 'food',    cat: 'food',    pro: true  },
+        { sel: '.view-btn[data-view="pet"]', view: 'pet', cat: 'habits', pro: false },
+    ];
+
+    // Что внутри #dashboard-screen ОСТАЁТСЯ кликабельным в режиме просмотра. Юзер должен свободно
+    // листать дни/месяцы и вкладки чужого экрана — запрещено только менять данные. Единственное
+    // место, где это решается; добавляя новую навигацию, дописывать сюда.
+    const FAMILY_VIEW_ALLOWED = [
+        '#top-nav-slot',         // стрелки дня/месяца и календарь в шапке
+        '.view-switcher',        // таб-бар — это навигация, не редактирование
+        '.dm-toggle',            // переключатель «День»/«Месяц» внутри «Задач» (обычный и Pro)
+        '.chart-month-nav',      // навигация по месяцам над графиками чек-апа (chartHeaderHtml)
+        '.chart-scroll',         // горизонтальный скролл графиков — перехватывать нельзя
+        '#history-btn-morning',  // календарь истории чек-апа: открывает прошлый день на чтение
+        '#history-btn-food',     // то же для «Питания» (см. isPro в renderFood)
+        '#date-input-morning',   // скрытые инпуты дат: openCalendar пишет туда и шлёт change,
+        '#date-input-evening',   // без них история чек-апа не откроется (см. initHistoryLogic)
+    ].join(',');
+
+    // НАСТОЯЩАЯ блокировка редактирования. Перехват в ФАЗЕ ПОГРУЖЕНИЯ на document — событие не
+    // доходит вообще ни до одного обработчика приложения, включая назначенные через свойство
+    // (.onclick у heatmap и стрелок месяца) и pointerdown драга задач (wireRowDrag). Одного CSS с
+    // pointer-events для этого мало: половина кликабельных элементов — обычные div (.hm-row,
+    // .task-day-row, .dash-habit-row), белый список в CSS протухал бы при каждой правке.
+    // Плашка «Вернуться к себе» лежит ВНЕ #dashboard-screen (см. index.html), поэтому в
+    // FAMILY_VIEW_ALLOWED её нет — она отсекается проверкой closest('#dashboard-screen') ниже.
+    function familyViewEventGuard(e) {
+        if (!familyView) return;
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        // .cal-overlay (openCalendar/openMonthPicker) и модалки живут в body, а не в дашборде —
+        // их не трогаем: они и так только читают и перерисовывают.
+        if (!t.closest('#dashboard-screen')) return;
+        if (t.closest(FAMILY_VIEW_ALLOWED)) return;
+        e.stopPropagation();
+        // preventDefault зовём только на click/mousedown — на pointerdown он в части мобильных
+        // WebView рубит заодно и обычный скролл пальцем, а листать чужой экран надо.
+        if (e.type === 'click' || e.type === 'mousedown') e.preventDefault();
+        if (e.type === 'focusin' && typeof t.blur === 'function') t.blur();
+    }
+    ['pointerdown', 'mousedown', 'click', 'dblclick', 'focusin', 'input', 'change', 'keydown']
+        .forEach(type => document.addEventListener(type, familyViewEventGuard, true));
+
+    // Чужое состояние приходит ОТФИЛЬТРОВАННЫМ (get_family_state вырезает нерасшаренные
+    // категории), поэтому в нём может не быть половины ключей — а рендеры это не всегда проверяют
+    // (renderPsychoMonth читает dashState.metricLog[...] без гарда, maybeShowViewHint —
+    // dashState.seenHints[view]). Прогоняем те же дефолты, что init() проставляет своему сейву,
+    // с двумя отличиями: metrics НЕ сидируем из cloneMetrics() (пустой список тут значит
+    // «показателями не поделился», дефолтный набор был бы враньём), и seenHints/onboardingDone
+    // выставляем так, чтобы онбординг точно не запустился поверх чужих данных.
+    function normalizeFamilyState(s) {
+        if (!Array.isArray(s.habits)) s.habits = [];
+        if (!s.checkinHistory) s.checkinHistory = {};
+        // dashState.checkins — ЧЕРНОВИК текущего дня, и get_family_state его сознательно не
+        // отдаёт (см. коммент в миграции): семье нужен зафиксированный лог, а не черновик.
+        // Но initCheckins рисует форму «Чек-ап дня» ИСКЛЮЧИТЕЛЬНО из checkins[prefix] — с пустым
+        // черновиком все шкалы выглядели незаполненными, хотя графики строчкой ниже читают
+        // checkinHistory и УЖЕ показывают сегодняшнюю точку. Получался экран, который сам себе
+        // противоречит: «сегодня чек-ап не заполняла» и её же сегодняшнее настроение на графике.
+        // Поэтому черновик для чужого состояния собираем из зафиксированного лога за сегодня.
+        const fvToday = s.checkinHistory[todayKey()] || {};
+        s.checkins = {
+            morning: { ...(fvToday.morning || {}) },
+            evening: { ...(fvToday.evening || {}) },
+        };
+        delete s.checkins.morning.savedAt; // служебная метка автосохранения, в форме ей делать нечего
+        delete s.checkins.evening.savedAt;
+        if (!s.history) s.history = {};
+        if (!s.foodLog) s.foodLog = {};
+        if (!s.foodMealSlots) s.foodMealSlots = {};
+        if (!s.gameRecords) s.gameRecords = {};
+        if (!s.calorieLog) s.calorieLog = {};
+        if (typeof s.calorieTarget !== 'number') s.calorieTarget = 2000;
+        if (!Array.isArray(s.unlockedGames)) s.unlockedGames = [];
+        if (!Array.isArray(s.metrics)) s.metrics = [];
+        if (!s.metricLog) s.metricLog = {};
+        if (!s.metricTargets) s.metricTargets = {};
+        if (!s.dayEvents) s.dayEvents = {};
+        if (!s.dayTasks) s.dayTasks = {};
+        if (typeof s.level !== 'number') s.level = 1;
+        if (typeof s.currentXP !== 'number') s.currentXP = 0;
+        if (typeof s.psychoMode !== 'boolean') s.psychoMode = false;
+        s.onboardingDone = true;
+        s.seenHints = {};
+        // Привычки без uid уронили бы renderTaskDayView/history — у чужого состояния гарантий
+        // меньше, чем у своего (ensureHabitUids чинит только МОЙ сейв, в init()).
+        s.habits.forEach((h, i) => {
+            if (!h.uid) h.uid = 'fv-' + i;
+            if (!Array.isArray(h.areas)) h.areas = [];
+        });
+        return s;
+    }
+
+    // Сброс курсоров навигации: чужой экран должен открыться с сегодняшнего дня/месяца, а не там,
+    // где я оставил свой (и наоборот при выходе).
+    function resetViewCursors() {
+        monthCursor = null;
+        checkupChartCursor = null;
+        currentFoodHistoryDate = null;
+        currentHistoryType = null;
+        currentHistoryDate = null;
+        // Именно эти два и определяют, какой день откроется ПЕРВЫМ: taskViewMode по умолчанию
+        // 'day', и renderMonthView сразу уходит в renderTaskDayView(currentTaskDate). Без сброса
+        // чужой экран открывался бы на дате, где я оставил СВОЙ («Смотришь Аня», а в шапке 12
+        // августа — выглядит как «она сегодня ничего не делала»), а на выходе дата, до которой я
+        // долистал у неё, уезжала бы обратно в мой собственный трекер.
+        currentTaskDate = todayKey();
+        currentPsychoDate = todayKey();
+    }
+
+    // Вход в режим. payload = { name, allowed, state } — ровно то, что отдаёт auth.js
+    // openFamilyMemberState по RPC get_family_state. Возвращает false, если показывать нечего —
+    // вызывающая сторона сама объясняет это юзеру текстом.
+    window.enterFamilyViewMode = function (payload) {
+        if (!payload || !payload.state) return false;
+        if (familyView) exitFamilyViewMode(true); // из просмотра одного члена семьи сразу в другого
+        const allowed = Array.isArray(payload.allowed) ? payload.allowed : [];
+        const tabs = FAMILY_VIEW_TABS.filter(t => allowed.indexOf(t.cat) !== -1);
+        if (!tabs.length) return false;
+
+        familyView = {
+            ownState: dashState,               // ТОТ ЖЕ объект, не копия — см. п.2 в шапке блока
+            name: payload.name || 'член семьи',
+        };
+        window.familyViewMode = true;          // читает auth.js syncMyStats()
+        dashState = normalizeFamilyState(payload.state);
+        // window.dashState НАМЕРЕННО не подменяем — auth.js loadAppState заливает в облако именно
+        // его, туда должно уйти моё состояние, а не чужое.
+        // checkNewDay() тут НЕ зовём принципиально: она мутирует состояние (сбрасывает checkins и
+        // lastActiveDate) — на чужих данных это просто враньё в UI.
+        dashState.psychoMode = !!tabs[0].pro;
+
+        const nameEl = document.getElementById('family-view-banner-name');
+        // Две строки, а не одна: имя может быть длинным (до 30 символов, см. #prof-name-input), и
+        // единой строкой «Смотришь <имя> — только просмотр» на узком экране хвост про режим
+        // просмотра обрезался бы многоточием — то есть пропадала бы ровно самая важная часть.
+        // Собираем узлами, а не innerHTML: имя пришло с ЧУЖОГО устройства, и экранировать его тут
+        // нечем (escHtml живёт в auth.js, это отдельный модуль). textContent безопасен по определению.
+        if (nameEl) {
+            nameEl.textContent = 'Смотришь ' + familyView.name;
+            const sub = document.createElement('span');
+            sub.className = 'family-view-banner-sub';
+            sub.textContent = 'только просмотр';
+            nameEl.appendChild(document.createElement('br'));
+            nameEl.appendChild(sub);
+        }
+        document.body.classList.add('family-view');
+        // psycho-invert переключаем НАПРЯМУЮ, а не через applyPsychoModeState(): та ещё и
+        // сохраняет состояние/обновляет мои кнопки. Не «упрощать» обратно.
+        dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
+        // Прячем ВСЕ кнопки таб-бара и возвращаем только разрешённые категорией. Класс, а не
+        // style.display: фиче-флаги в начале файла уже прячут часть кнопок инлайн-стилем, и выход
+        // из режима не должен их «воскрешать».
+        document.querySelectorAll('.view-btn').forEach(b => b.classList.add('fv-hidden'));
+        tabs.forEach(t => document.querySelectorAll(t.sel).forEach(b => b.classList.remove('fv-hidden')));
+
+        measureFamilyViewBanner(); // плашка уже с текстом — можно мерить её реальную высоту
+        resetViewCursors();
+        measureBottomBar(); // состав таб-бара изменился — перемерить резерв под .dash-content
+        switchView(tabs[0].view);
+        return true;
+    };
+
+    // Резерв сверху под плашку: она переносится на две-три строки, если имя длинное, поэтому
+    // высоту меряем, а не зашиваем числом (CSS читает её из --family-view-banner-h). Пересчёт на
+    // resize — поворот экрана меняет число строк.
+    function measureFamilyViewBanner() {
+        const banner = document.getElementById('family-view-banner');
+        if (!banner) return;
+        const h = banner.offsetHeight;
+        if (h) document.documentElement.style.setProperty('--family-view-banner-h', (h + 10) + 'px');
+    }
+    window.addEventListener('resize', () => { if (familyView) measureFamilyViewBanner(); });
+
+    // Выход. silent=true — только служебное восстановление состояния без перерисовки (нужно при
+    // переходе «из просмотра одного члена семьи сразу в другого»).
+    function exitFamilyViewMode(silent) {
+        if (!familyView) return;
+        const fv = familyView;
+        familyView = null;
+        window.familyViewMode = false;
+        dashState = fv.ownState;      // та же ссылка, что была до входа — ничего не пересобираем
+        window.dashState = dashState;
+        document.body.classList.remove('family-view');
+        document.querySelectorAll('.view-btn.fv-hidden').forEach(b => b.classList.remove('fv-hidden'));
+        dashboardScreen.classList.toggle('psycho-invert', !!dashState.psychoMode);
+        if (silent) return;
+        // Облачное состояние, отложенное реалтаймом во время просмотра (см. window.applyCloudState):
+        // применяем сейчас. Оно само делает location.reload(), дальше рендерить нечего.
+        if (pendingCloudState) {
+            const p = pendingCloudState;
+            pendingCloudState = null;
+            window.applyCloudState(p.remoteState, p.remoteUpdatedAt);
+            return;
+        }
+        resetViewCursors();
+        measureBottomBar();
+        switchView('month');          // возвращаемся на основную вкладку своих данных
+        updateProgressUI();
+        updateCheckinButtonPulse();
+    }
+    window.exitFamilyViewMode = exitFamilyViewMode;
+
+    const familyViewExitBtn = document.getElementById('family-view-exit');
+    if (familyViewExitBtn) familyViewExitBtn.addEventListener('click', () => exitFamilyViewMode());
+
     // === КНОПКИ ПЕРЕКЛЮЧЕНИЯ ===
     // data-mode есть только у пар «Задачи»/«Питание» (base + Pro, см. index.html): такая кнопка
     // не тумблит режим, а ЗАДАЁТ его — нажал Pro-вариант, включился Pro mode, нажал обычный,
@@ -3630,7 +3999,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // вкладок показать детали») — без подписки клик открывает превью-пейволл ИМЕННО
                 // этой вкладки вместо входа в режим (не общий, а под конкретное содержимое —
                 // 'tasks' для «Задачи», 'food' для «Питание», см. openProModePaywall(kind)).
-                if (wantPro && !window.hasActiveSubscription) {
+                // В режиме просмотра члена семьи (Фаза 19) Pro-вкладки открываются без пейволла:
+                // это ЕГО данные и ЕГО оплаченный режим, гейт подписки тут не про мой доступ. Сам
+                // режим всё равно переключается строкой ниже — иначе вкладка отрисуется не тем
+                // рендером (renderPsychoDay вместо renderTaskDayView и наоборот).
+                if (wantPro && !window.hasActiveSubscription && !familyView) {
                     openProModePaywall(btn.dataset.view === 'food' ? 'food' : 'tasks');
                     return;
                 }
@@ -3701,7 +4074,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tasks = getDayTasks(dayModalTargetDate);
         dayTaskListEl.innerHTML = tasks.map((t, i) => `
             <div class="cal-item">
-                <span class="day-task-list-text${t.done ? ' done' : ''}" data-idx="${i}">${escAttr(t.text)}</span>
+                <span class="day-task-list-text${t.done ? ' done' : ''}" data-idx="${i}">${esc(t.text)}</span>
                 <button type="button" class="cal-item-del" data-idx="${i}" aria-label="Удалить">✕</button>
             </div>`).join('');
         dayTaskListEl.querySelectorAll('.day-task-list-text').forEach(el => el.addEventListener('click', () => {
@@ -3776,13 +4149,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const t = tasks[i];
             taskRows += `<div class="day-field-row">
                 <button type="button" class="day-event-btn day-task-btn">Задача дня</button>
-                ${t ? `<span class="day-task-inline${t.done ? ' done' : ''}" data-idx="${i}">${t.text}</span>` : ''}
+                ${t ? `<span class="day-task-inline${t.done ? ' done' : ''}" data-idx="${i}">${esc(t.text)}</span>` : ''}
             </div>`;
         }
         container.innerHTML = `
             <div class="day-field-row">
                 <button type="button" class="day-event-btn" id="open-day-event-btn">Событие дня</button>
-                ${eventText ? `<span class="day-event-inline">${eventText}</span>` : ''}
+                ${eventText ? `<span class="day-event-inline">${esc(eventText)}</span>` : ''}
             </div>
             ${taskRows}`;
         document.getElementById('open-day-event-btn').addEventListener('click', () => openDayEventModal(dateKey));
@@ -4095,6 +4468,122 @@ document.addEventListener('DOMContentLoaded', () => {
             if (nextIdx < 0 || nextIdx >= order.length) return;
             switchView(order[nextIdx]);
         }, { passive: true });
+    })();
+
+    // === ФОТО ГЛАВНОГО ЭКРАНА (интро + стартовый лоадер) ===
+    // Просьба юзера: «сделай возможность в профиле настроить фотку главного экрана, где крупными
+    // буквами написано live life, и сделай чтобы эта фотка была вместо белого экрана при открытии
+    // приложения. её можно настраивать неограниченное кол-во раз».
+    // ГДЕ ХРАНИМ И ПОЧЕМУ ИМЕННО ТАК: отдельный ключ localStorage (мгновенный старт без белой
+    // вспышки — его читает инлайн-скрипт в <head> index.html) + отдельная облачная таблица
+    // user_media (db/phase22_intro_photo.sql), чтобы фото переезжало на другое устройство.
+    // Класть картинку в dashState НЕЛЬЗЯ: dashState целиком уезжает в облачную jsonb-колонку
+    // app_state при КАЖДОМ сохранении (saveProgress → window.syncAppState → auth.js pushAppState,
+    // см. db/phase11_app_state_sync.sql) — base64 на 250КБ означал бы лишние сотни килобайт
+    // исходящего трафика на каждый поставленный чек-бокс и столько же входящего на каждое
+    // realtime-событие другого устройства. Бонусом отдельный ключ переживает applyCloudState():
+    // тот перезаписывает только 'habbittracker_progress', так что фото не слетает при синке.
+    const INTRO_PHOTO_KEY = 'habbittracker_intro_photo';
+    const INTRO_PHOTO_MAX_W = 1080;   // с камеры прилетает 3-4К; 1080px по ширине с запасом хватает любому телефонному экрану
+    const INTRO_PHOTO_QUALITY = 0.82; // JPEG: на фотографии заметно легче PNG, прозрачность тут не нужна
+
+    function getIntroPhoto() {
+        try { return localStorage.getItem(INTRO_PHOTO_KEY) || ''; } catch (e) { return ''; }
+    }
+
+    // Ровно то же самое делает инлайн-скрипт в <head> index.html — он нужен, чтобы фото стояло ДО
+    // первой отрисовки (иначе белая вспышка), а эта функция — чтобы смена фото в профиле была
+    // видна мгновенно, без перезагрузки страницы. Сами правила — в habbittracker.css
+    // (html.has-intro-photo #intro-screen / .loading-overlay).
+    function applyIntroPhoto(dataUrl) {
+        const root = document.documentElement;
+        if (dataUrl) {
+            root.style.setProperty('--intro-photo', `url("${dataUrl}")`);
+            root.classList.add('has-intro-photo');
+        } else {
+            root.style.removeProperty('--intro-photo');
+            root.classList.remove('has-intro-photo');
+        }
+    }
+
+    // Ужимаем картинку канвасом ДО сохранения: файл с камеры телефона — это 3-8МБ, а в
+    // localStorage на весь origin ~5МБ, и там уже лежит весь прогресс (habbittracker_progress).
+    // Без сжатия setItem гарантированно упал бы с QuotaExceededError.
+    function readIntroPhotoAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                const scale = Math.min(1, INTRO_PHOTO_MAX_W / img.naturalWidth); // апскейлить маленькие картинки незачем
+                const w = Math.max(1, Math.round(img.naturalWidth * scale));
+                const h = Math.max(1, Math.round(img.naturalHeight * scale));
+                const cv = document.createElement('canvas');
+                cv.width = w; cv.height = h;
+                cv.getContext('2d').drawImage(img, 0, 0, w, h);
+                try { resolve(cv.toDataURL('image/jpeg', INTRO_PHOTO_QUALITY)); }
+                catch (e) { reject(e); } // теоретически возможно только на «испорченном» канвасе
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('не удалось прочитать файл')); };
+            img.src = url;
+        });
+    }
+
+    (function initIntroPhoto() {
+        const input = document.getElementById('intro-photo-input');
+        const pickBtn = document.getElementById('intro-photo-pick');
+        const clearBtn = document.getElementById('intro-photo-clear');
+        const preview = document.getElementById('intro-photo-preview');
+        const msg = document.getElementById('intro-photo-msg');
+        if (!input || !pickBtn || !clearBtn || !preview || !msg) return;
+        const HINT = 'Меняй сколько угодно раз — это фото встанет вместо белого экрана при запуске.';
+
+        function renderPhotoUI() {
+            const cur = getIntroPhoto();
+            preview.style.backgroundImage = cur ? `url("${cur}")` : '';
+            preview.classList.toggle('has-photo', !!cur);
+            clearBtn.style.display = cur ? 'block' : 'none';
+            pickBtn.textContent = cur ? 'Заменить фото' : 'Выбрать фото';
+        }
+        // auth.js зовёт её после loadIntroPhoto(), когда облачная копия приехала уже ПОСЛЕ того,
+        // как профиль отрисовался (сеть медленнее, чем открытие модалки).
+        window.refreshIntroPhotoUI = () => { applyIntroPhoto(getIntroPhoto()); renderPhotoUI(); };
+
+        // input.value='' перед .click() — иначе повторный выбор ТОГО ЖЕ файла не даёт события
+        // change, и юзеру кажется, что кнопка сломалась (а он просил менять фото неограниченно).
+        pickBtn.addEventListener('click', () => { input.value = ''; input.click(); });
+
+        input.addEventListener('change', async () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            msg.textContent = 'Обрабатываем фото…';
+            try {
+                const dataUrl = await readIntroPhotoAsDataUrl(file);
+                localStorage.setItem(INTRO_PHOTO_KEY, dataUrl); // может бросить QuotaExceededError — ловим ниже
+                applyIntroPhoto(dataUrl);
+                renderPhotoUI();
+                msg.textContent = 'Готово — фото уже стоит на главном экране.';
+                // Облачная копия (user_media) — fire-and-forget: если сети нет, фото всё равно уже
+                // работает на этом устройстве, а следующая смена фото зальёт его заново.
+                if (window.saveIntroPhotoToCloud) window.saveIntroPhotoToCloud(dataUrl);
+                setTimeout(() => { if (msg.textContent.startsWith('Готово')) msg.textContent = HINT; }, 2500);
+            } catch (e) {
+                // Практически всегда это переполнение localStorage: там уже лежит весь прогресс.
+                // Старое фото при этом не трогаем — юзер не теряет то, что уже стояло.
+                console.warn('⚠️ Фото главного экрана не сохранилось:', e);
+                msg.textContent = 'Не получилось сохранить фото — попробуй картинку поменьше.';
+            }
+        });
+
+        clearBtn.addEventListener('click', () => {
+            try { localStorage.removeItem(INTRO_PHOTO_KEY); } catch (e) {}
+            applyIntroPhoto('');
+            renderPhotoUI();
+            if (window.saveIntroPhotoToCloud) window.saveIntroPhotoToCloud('');
+            msg.textContent = HINT;
+        });
+
+        renderPhotoUI();
     })();
 
     // === СТАРТОВЫЙ ЛОАДЕР ===

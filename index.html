@@ -5,7 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Habbittracker MVP</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="stylesheet" href="habbittracker.css?v=56">
+    <link rel="stylesheet" href="habbittracker.css?v=57">
+    <!-- Фото главного экрана (юзер настраивает его в профиле, см. initIntroPhoto в
+         habbittracker.js). Ставим ДО первой отрисовки, прямо тут в <head>: habbittracker.js
+         подключён в самом низу <body> и выполняется уже ПОСЛЕ того, как браузер нарисовал белый
+         #intro-screen — фото «въезжало» бы поверх заметной белой вспышки, а юзер просил ровно
+         обратного («чтобы эта фотка была вместо белого экрана при открытии приложения»).
+         Локальная копия картинки лежит в localStorage отдельным ключом, НЕ в dashState: dashState
+         целиком уезжает в облачный jsonb app_state при каждом сохранении (см. saveProgress →
+         window.syncAppState и db/phase11_app_state_sync.sql), base64 раздул бы каждый синк. Своя
+         таблица user_media (db/phase22_intro_photo.sql) синхронизирует фото между устройствами
+         отдельно от app_state — читается один раз за сессию, см. loadIntroPhoto в auth.js.
+         --intro-photo — первая и пока единственная CSS-переменная в проекте: так дешевле всего
+         протащить data-URL из JS в готовые правила habbittracker.css без генерации <style>. -->
+    <script>
+        (function () {
+            try {
+                var p = localStorage.getItem('habbittracker_intro_photo');
+                if (!p) return;
+                document.documentElement.style.setProperty('--intro-photo', 'url("' + p + '")');
+                document.documentElement.classList.add('has-intro-photo');
+            } catch (e) {} // приватный режим/заблокированный localStorage — просто остаёмся с белым экраном
+        })();
+    </script>
 </head>
 <body>
 
@@ -51,6 +73,15 @@
         </div>
         <div class="promode-msg" id="paywall-msg"></div>
     </section>
+
+    <!-- Плашка режима «смотрю чужой экран» (Фаза 19, кнопка «Посмотреть» в блоке «Семья»).
+         position:fixed, поэтому лежит вне #dashboard-screen — иначе её накрывал бы собственный
+         padding дашборда, и она уезжала бы вместе с его прокруткой. Показывается классом
+         body.family-view, см. enterFamilyViewMode в habbittracker.js. -->
+    <div class="family-view-banner" id="family-view-banner">
+        <span class="family-view-banner-name" id="family-view-banner-name"></span>
+        <button class="family-view-exit" id="family-view-exit" type="button">Вернуться к себе</button>
+    </div>
 
     <!-- ЭКРАН: ДАШБОРД (сразу после интро) -->
     <section id="dashboard-screen" class="hidden">
@@ -347,6 +378,25 @@
                     <button class="prof-name-save" id="prof-name-save" type="button">Сохранить</button>
                 </div>
                 <div class="prof-name-msg" id="prof-name-msg"></div>
+                <!-- Итоги дня в боте (Фаза 20) — юзер попросил самому выбирать, во сколько
+                     приходит вечерний отчёт («некоторые люди ложатся спать в 4 ночи») и уметь
+                     запросить сводку прямо сейчас. Время хранится в profiles.summary_time, ниже
+                     полудня трактуется как «отчёт за ПРОШЕДШИЙ день» — см. подпись в .summary-hint
+                     и get_and_mark_due_summaries в db/phase20_summary_time.sql. -->
+                <div class="summary-section">
+                    <div class="fam-h">Итоги дня в боте</div>
+                    <div class="summary-row">
+                        <label for="summary-time-input">Присылать в</label>
+                        <input type="time" id="summary-time-input" class="summary-time-input" value="22:45">
+                    </div>
+                    <div class="summary-row">
+                        <label for="summary-enabled-toggle">Присылать каждый день</label>
+                        <input type="checkbox" id="summary-enabled-toggle" checked>
+                    </div>
+                    <div class="summary-hint">Если поставить время до 12:00, придут итоги прошедшего дня — для тех, кто ложится под утро.</div>
+                    <button class="auth-copy" id="summary-now-btn" type="button">Прислать сводку сейчас</button>
+                    <div class="summary-msg" id="summary-msg"></div>
+                </div>
                 <div class="sub-section">
                     <div class="auth-row"><span class="auth-k">Подписка</span><span class="auth-v" id="sub-status">—</span></div>
                     <div class="sub-plans">
@@ -366,8 +416,15 @@
                      (юзер попросил сильно сократить), вторая секция ниже (Приглашённые друзья)
                      его не использует. -->
                 <div class="fam-section fam-section-tight">
-                    <div class="fam-h">Семья</div>
+                    <!-- «Редактировать доступ» (Фаза 19) — настройка одна на ВСЮ семью, не на
+                         каждого человека отдельно: юзер попросил «выбрать что именно показывать
+                         семья», матрица «раздел × человек» была бы и сложнее, и непонятнее. -->
+                    <div class="fam-h-row">
+                        <div class="fam-h">Семья</div>
+                        <button class="fam-access-btn" id="fam-access-btn" type="button">Редактировать доступ</button>
+                    </div>
                     <div id="family-list"></div>
+                    <div class="fam-view-msg" id="fam-view-msg"></div>
                     <div class="fam-add">
                         <input type="text" id="fam-invite-input" class="auth-input" placeholder="ID близкого" maxlength="8" style="margin-bottom:0">
                         <button class="fam-invite-btn" id="fam-invite-btn" type="button">Пригласить в семью</button>
@@ -392,8 +449,42 @@
                     <div class="fam-h">Приглашённые друзья</div>
                     <div id="invited-friends-list"></div>
                 </div>
+                <!-- Фото главного экрана — юзер попросил возможность поставить своё фото на
+                     заставку с крупной надписью «Live Life» (и тем же снимком заменить белый
+                     экран загрузки). Меняется сколько угодно раз. Логика — initIntroPhoto в
+                     habbittracker.js (сжатие + localStorage), а облачную копию через таблицу
+                     user_media (db/phase22_intro_photo.sql) сохраняет auth.js — в app_state
+                     картинку класть нельзя, этот jsonb уходит на сервер при КАЖДОМ изменении. -->
+                <div class="fam-section intro-photo-section">
+                    <div class="fam-h">Фото главного экрана</div>
+                    <div class="intro-photo-row">
+                        <div class="intro-photo-preview" id="intro-photo-preview"><span>нет фото</span></div>
+                        <div class="intro-photo-actions">
+                            <button class="auth-copy" id="intro-photo-pick" type="button">Выбрать фото</button>
+                            <button class="auth-copy" id="intro-photo-clear" type="button" style="display:none">Убрать фото</button>
+                        </div>
+                    </div>
+                    <input type="file" id="intro-photo-input" accept="image/*" style="display:none">
+                    <div class="intro-photo-msg" id="intro-photo-msg">Меняй сколько угодно раз — это фото встанет вместо белого экрана при запуске.</div>
+                </div>
                 <button class="auth-logout" id="auth-logout" type="button">Выйти</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ПОПАП «РЕДАКТИРОВАТЬ ДОСТУП» (Фаза 19) — что именно из моего трекера видит семья.
+         Лежит СИБЛИНГОМ #auth-modal, а не внутри него: у .auth-card есть overflow-y:auto и своя
+         прокрутка, вложенный fixed-оверлей внутри неё вёл бы себя непредсказуемо. Список галочек
+         рисует JS (FAMILY_SHARE_CATS в auth.js) — тексты разделов должны совпадать с ключами,
+         которые понимает get_family_state, и держать их в одном месте безопаснее. -->
+    <div id="fam-access-modal" class="fam-access-modal">
+        <div class="fam-access-card">
+            <div class="habit-settings-header"><h3>Доступ для семьи</h3><button class="habit-settings-close" id="fam-access-close" type="button">✕</button></div>
+            <p class="fam-access-lead">Отметь, что видят близкие, когда открывают твой профиль или жмут «Посмотреть». Настройка общая для всей семьи.</p>
+            <div class="fam-access-list" id="fam-access-list"></div>
+            <button class="fam-access-full" id="fam-access-full-btn" type="button">Дать полный доступ</button>
+            <button class="fam-access-done" id="fam-access-done-btn" type="button">Готово</button>
+            <div class="fam-access-msg" id="fam-access-msg"></div>
         </div>
     </div>
 
@@ -410,7 +501,7 @@
 
     <!-- Telegram Mini App SDK — безопасно грузить и вне Telegram, просто не даст window.Telegram.WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="habbittracker.js?v=63"></script>
-    <script type="module" src="auth.js?v=44"></script>
+    <script src="habbittracker.js?v=64"></script>
+    <script type="module" src="auth.js?v=45"></script>
 </body>
 </html>
