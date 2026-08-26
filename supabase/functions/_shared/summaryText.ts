@@ -53,6 +53,15 @@ function pluralHours(n: number): string {
   return 'часов';
 }
 
+// Шкала чек-апа: 1..10 плюс ∞ между 5 и 6 — «стабильное самочувствие» (просьба юзера).
+// В app_state ∞ лежит числом 5.5 (см. CHECKIN_STABLE в habbittracker.js: так значение само встаёт
+// посередине на графиках, без спецветок). В тексте сводки «5.5/10» выглядело бы как опечатка,
+// поэтому подставляем сам знак. escHtml тут не нужен — значение всегда число, но прогоняем на
+// всякий случай: в app_state приезжает то, что записал клиент, а он мог быть и старой версии.
+function fmtScale(v: unknown): string {
+  return Number(v) === 5.5 ? '∞ (стабильно)' : `${escHtml(v)}/10`;
+}
+
 // Собирает читаемый текст сводки из среза dashState за ОДИН день. Возвращает null, если в этот
 // день вообще ничего не трогал — пустой отчёт слать не имеет смысла (ночная рассылка его просто
 // не шлёт, а сводка по кнопке подставляет свою заглушку). Заголовки блоков — жирным (HTML <b>,
@@ -115,10 +124,10 @@ export function buildSummaryText(state: AnyState, todayKey: string): string | nu
       if (morning.wakeTime) parts.push(`встал в ${escHtml(morning.wakeTime)}`);
       if (morning.extraSleepHours) parts.push(`+${escHtml(morning.extraSleepHours)} ч сна урывками`);
     }
-    if (morning.mood) parts.push(`настроение ${escHtml(morning.mood)}/10`);
-    if (morning.sleepQuality) parts.push(`сон ${escHtml(morning.sleepQuality)}/10`);
-    if (morning.energy) parts.push(`энергия ${escHtml(morning.energy)}/10`);
-    if (morning.health) parts.push(`здоровье ${escHtml(morning.health)}/10`);
+    if (morning.mood) parts.push(`настроение ${fmtScale(morning.mood)}`);
+    if (morning.sleepQuality) parts.push(`сон ${fmtScale(morning.sleepQuality)}`);
+    if (morning.energy) parts.push(`энергия ${fmtScale(morning.energy)}`);
+    if (morning.health) parts.push(`здоровье ${fmtScale(morning.health)}`);
     if (parts.length) sections.push('<b>🌙 Чек-ап:</b>\n' + parts.join('\n'));
   }
 

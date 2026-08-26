@@ -369,6 +369,38 @@ document.addEventListener('DOMContentLoaded', () => {
     // возьми по UTC» на чтении добавлять НЕЛЬЗЯ — он задваивает соседний день, см. коммент в
     // drawSleepHoursChart.
     const todayKey = () => { const t = new Date(); return fdt(t.getFullYear(), t.getMonth(), t.getDate()); };
+
+    // === ШКАЛА ЧЕК-АПА: 1..10 + ∞ между 5 и 6 ===
+    // Юзер попросил добавить между 5 и 6 значок бесконечности — «стабильное самочувствие», и
+    // чтобы на графиках он тоже стоял между 5 и 6. Поэтому ∞ — это НЕ отдельный флаг рядом с
+    // числом, а обычное числовое значение 5.5: графики (yAt(v) = линейная шкала 0..10) кладут его
+    // ровно посередине без единой спецветки, сравнения и сортировки работают как раньше, а старые
+    // записи с целыми числами остаются валидными. Строкой '∞' хранить было бы нельзя — сломались
+    // бы и графики, и сравнения.
+    const CHECKIN_STABLE = 5.5;
+    const CHECKIN_SCALE = [1, 2, 3, 4, 5, CHECKIN_STABLE, 6, 7, 8, 9, 10];
+    const scaleLabel = (v) => (v === CHECKIN_STABLE ? '∞' : String(v));
+
+    // Единственный рендер шкалы на всё приложение: форма за сегодня (initCheckins) и режим
+    // истории (loadHistoryData) раньше держали две одинаковые копии цикла 1..10, и добавление ∞
+    // пришлось бы делать дважды — ровно так и расходятся две копии одного кода.
+    function renderScaleButtons(container, currentVal, onPick) {
+        container.innerHTML = '';
+        container.className = 'scale-container';
+        CHECKIN_SCALE.forEach(v => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'scale-btn' + (v === currentVal ? ' active' : '') + (v === CHECKIN_STABLE ? ' scale-btn-stable' : '');
+            btn.textContent = scaleLabel(v);
+            if (v === CHECKIN_STABLE) btn.title = 'Стабильное самочувствие';
+            btn.addEventListener('click', () => {
+                container.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                onPick(v);
+            });
+            container.appendChild(btn);
+        });
+    }
     const newUid = () => 'u' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 
     // id привычки = id цели и он НЕ уникален (у цели несколько микро-привычек),
@@ -3256,25 +3288,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!key) return;
                 const checkinsData = dashState.checkins[prefix] || {};
                 const currentVal = checkinsData[key] || 0;
-                container.innerHTML = '';
-                container.className = 'scale-container';
-                for (let i = 1; i <= 10; i++) {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = `scale-btn ${i === currentVal ? 'active' : ''}`;
-                    btn.textContent = i;
-                    btn.addEventListener('click', () => {
-                        container.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
-                        btn.classList.add('active');
-                        if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
-                        dashState.checkins[prefix][key] = i;
-                        autoSaveCheckin(prefix);
-                        // Юзер попросил: если настроение ниже 4 — семья/друзья узнают об этом
-                        // пушем в боте (см. notify-mood-alert). Дедуп «раз в день» — на сервере.
-                        if (key === 'mood' && i < 4 && window.notifyMoodAlert) window.notifyMoodAlert(i);
-                    });
-                    container.appendChild(btn);
-                }
+                renderScaleButtons(container, currentVal, (v) => {
+                    if (!dashState.checkins[prefix]) dashState.checkins[prefix] = {};
+                    dashState.checkins[prefix][key] = v;
+                    autoSaveCheckin(prefix);
+                    // Юзер попросил: если настроение ниже 4 — семья/друзья узнают об этом
+                    // пушем в боте (см. notify-mood-alert). Дедуп «раз в день» — на сервере.
+                    // ∞ (5.5) под порог не попадает — это «стабильно», а не «плохо».
+                    if (key === 'mood' && v < 4 && window.notifyMoodAlert) window.notifyMoodAlert(v);
+                });
             });
 
             // Инициализация горизонтальных пикеров времени (лёг/встал)
@@ -3779,20 +3801,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = container.dataset.key;
             if (!key) return;
             const val = data[key] || 0;
-            container.innerHTML = '';
-            container.className = 'scale-container';
-            for (let i = 1; i <= 10; i++) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = `scale-btn ${i === val ? 'active' : ''}`;
-                btn.textContent = i;
-                btn.addEventListener('click', () => {
-                    container.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    saveHistoryCheckin(type, date, key, i);
-                });
-                container.appendChild(btn);
-            }
+            renderScaleButtons(container, val, (v) => saveHistoryCheckin(type, date, key, v));
         });
         form.querySelectorAll('.time-scroll-container').forEach(container => {
             const key = container.dataset.key;

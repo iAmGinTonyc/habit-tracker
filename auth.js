@@ -292,12 +292,20 @@ async function syncMyStats() {
   // saveProgress() в habbittracker.js там жёсткий no-op.
   if (window.familyViewMode) return;
   const s = window.getSummary();
+  // stats.mood — колонка INT (db/phase3_family.sql), а шкала чек-апа с недавних пор умеет ∞ =
+  // 5.5 («стабильное самочувствие», см. CHECKIN_STABLE в habbittracker.js). Постгрес округлил бы
+  // 5.5 до 6 сам и молча — округляем ЯВНО, чтобы это было решением, а не случайностью.
+  // Плата: в карточке семьи ∞ выглядит как «настроение 6/10». Точнее без смены типа колонки не
+  // сделать, а это тянет за собой пересоздание get_family_stats (меняется тип в RETURNS TABLE) —
+  // ради одной строчки в карточке того не стоит. В режиме «Посмотреть» и в сводке бота ∞
+  // показывается как ∞: там данные идут из app_state, где лежит настоящее 5.5.
+  const moodForStats = s.mood == null ? null : Math.round(s.mood);
   // level больше не шлём — механика уровней убрана из семейного вида по просьбе юзера (в самом
   // приложении она и так уже скрыта FEATURES.xpLevels, семья была единственной оставшейся утечкой).
   await sb.from('stats').upsert({
     id: me,
     name: myDisplayName || defaultName(),
-    streak: s.streak, week_pct: s.weekPct, mood: s.mood, day_event: s.dayEvent,
+    streak: s.streak, week_pct: s.weekPct, mood: moodForStats, day_event: s.dayEvent,
     updated_at: new Date().toISOString()
   });
 }

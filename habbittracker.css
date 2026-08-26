@@ -405,8 +405,13 @@
 .checkin-time, .checkin-text { width: 100%; border: none; border-bottom: 1px solid #e0e0e0; padding: 6px 0; font-size: 15px; color: #111; outline: none; background: transparent; transition: border-color 0.2s; font-family: inherit; }
 .checkin-time:focus, .checkin-text:focus { border-color: #111; }
 .checkin-text::placeholder { color: #bbb; }
-.scale-container { display: flex; gap: 5px; }
+/* gap 4, а не 5: кнопок теперь 11 (1..10 + ∞ между 5 и 6), и на 375px экране лишний пиксель
+   зазора съедал ширину, из-за которой «10» переставало помещаться. */
+.scale-container { display: flex; gap: 4px; }
 .scale-btn { flex: 1; min-width: 0; height: 34px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: #555; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; user-select: none; font-family: inherit; }
+/* ∞ — «стабильное самочувствие» (см. CHECKIN_STABLE в habbittracker.js). Символ мелкий в рубленом
+   шрифте, поэтому кегль крупнее соседних цифр, иначе на кнопке читается как точка. */
+.scale-btn-stable { font-size: 17px; line-height: 1; }
 .scale-btn:hover { border-color: #111; color: #111; }
 .scale-btn.active { background: #111; color: #fff; border-color: #111; }
 /* Горизонтальный скролл выбора времени (шаг 30 мин) — вместо нативного <input type="time"> */
@@ -1155,7 +1160,10 @@ canvas { width: 100%; height: 150px; }
        .vb-ico { font-size: 16px; }
        .vb-ico svg { width: 17px; height: 17px; }
        .vb-txt { font-size: 9px; }
-       .scale-btn { width: 22px; height: 22px; font-size: 9px; }
+       /* width фиксированной больше нет: с 11 кнопками (1..10 + ∞) жёсткие 22px переставали
+          укладываться в строку и последняя уезжала. flex:1 из базового правила растянет их сам. */
+       .scale-btn { height: 22px; font-size: 9px; }
+       .scale-btn-stable { font-size: 13px; }
        .level-up-wolf { width: 350px; }
        .month-summary { gap: 20px; }
        .hm-label { min-width: 0; } /* даёт ellipsis сработать при нехватке места рядом со счётчиком */
